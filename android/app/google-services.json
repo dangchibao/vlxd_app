@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "6280664958",
+    "project_id": "vlxd-bay-hai",
+    "storage_bucket": "vlxd-bay-hai.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:6280664958:android:014e50ff389f9922a0c52f",
+        "android_client_info": {
+          "package_name": "vn.bayhai.vlxd_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAjE-rcmUQU-EcwLg0MDnWdMoqV1OnypI4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,154 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function staff() {
+      return signedIn() && profile().active == true
+        && profile().role in ['owner', 'sales']
+        && profile().mustChangePassword == false;
+    }
+    function owner() { return staff() && profile().role == 'owner'; }
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || owner());
+      allow list: if owner();
+      // First owner is provisioned out-of-band; nobody can self-register a role.
+      allow create: if owner() && uid != request.auth.uid
+        && request.resource.data.keys().hasOnly(['role', 'active', 'displayName', 'mustChangePassword'])
+        && request.resource.data.role in ['owner', 'sales', 'driver', 'other']
+        && request.resource.data.active is bool
+        && request.resource.data.displayName is string
+        && request.resource.data.mustChangePassword is bool;
+      allow update: if (owner() && uid != request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'active', 'displayName', 'mustChangePassword'])
+          && request.resource.data.role in ['owner', 'sales', 'driver', 'other']
+          && request.resource.data.active is bool
+          && request.resource.data.displayName is string
+          && request.resource.data.mustChangePassword is bool)
+        || (signedIn() && uid == request.auth.uid && resource.data.active == true
+          && resource.data.role in ['owner', 'sales']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChangePassword'])
+          && request.resource.data.mustChangePassword == false);
+      allow delete: if false;
+    }
+    match /accountAudit/{id} {
+      allow read: if owner();
+      allow create: if owner() && request.resource.data.actor == request.auth.uid
+        && request.resource.data.target is string && request.resource.data.action is string
+        && request.resource.data.at == request.time;
+      allow update, delete: if false;
+    }
+    match /stores/{storeId} {
+      function statePath() { return /databases/$(database)/documents/stores/$(storeId)/meta/state; }
+      function revision() { return exists(statePath()) ? get(statePath()).data.revision : 0; }
+      function nextState() { return getAfter(statePath()).data; }
+      function validCommit() {
+        let m = request.resource.data;
+        return storeId == 'bay-hai' && staff()
+          && m.keys().hasOnly(['revision', 'mutationId', 'updatedBy', 'updatedAt', 'auditId'])
+          && m.revision == revision() + 1
+          && m.updatedBy == request.auth.uid && m.updatedAt == request.time
+          && m.mutationId is string && m.auditId == 'commit-' + m.mutationId
+          && !exists(/databases/$(database)/documents/stores/$(storeId)/audit/$(m.auditId))
+          && getAfter(/databases/$(database)/documents/stores/$(storeId)/audit/$(m.auditId)).data.value.actor == request.auth.uid
+          && getAfter(/databases/$(database)/documents/stores/$(storeId)/audit/$(m.auditId)).data.mutationId == m.mutationId;
+      }
+      function envelope(id) {
+        let d = request.resource.data;
+        return staff() && storeId == 'bay-hai'
+          && d.keys().hasOnly(['value', 'revision', 'mutationId', 'updatedBy', 'updatedAt'])
+          && d.value is map && d.value.id == id
+          && d.revision == revision() + 1 && d.revision == nextState().revision
+          && d.mutationId == nextState().mutationId
+          && d.updatedBy == request.auth.uid && d.updatedAt == request.time;
+      }
+      match /meta/state {
+        allow read: if staff() && storeId == 'bay-hai';
+        allow create, update: if validCommit();
+        allow delete: if false;
+      }
+      match /{collection}/{id} {
+        allow read: if staff() && storeId == 'bay-hai'
+          && collection in ['products', 'orders', 'customers', 'deliveries', 'payroll', 'audit', 'stockMoves', 'notifications', 'requests'];
+        // Per-type rules below control writes; unmatched collections stay closed.
+      }
+      match /products/{id} {
+        function product() {
+          let p = request.resource.data.value;
+          return p.keys().hasOnly(['id','code','name','size','supplier','price','ratio','minimum','active','images','lots','note'])
+            && p.code is string && p.name is string && p.name.size() > 0
+            && p.price is int && p.price > 0 && p.price <= 1000000000
+            && p.ratio is int && p.ratio >= 0 && p.minimum is int && p.minimum >= 0
+            && (!('note' in p) || (p.note is string && p.note.size() <= 1000))
+            && p.active is bool && p.images is list && p.images.size() <= 11 && p.lots is list;
+        }
+        allow create, update: if envelope(id) && product();
+      }
+      match /customers/{id} {
+        function validCustomer() {
+          let c = request.resource.data.value;
+          return c.keys().hasOnly(['id','name','phone','active','receivableAdjustment','receivedAdjustment','ledgerVersion'])
+            && c.name is string && c.name.size() > 0 && c.phone is string
+            && (!('active' in c) || c.active is bool)
+            && (!('receivableAdjustment' in c) || c.receivableAdjustment is int)
+            && (!('receivedAdjustment' in c) || c.receivedAdjustment is int)
+            && (!('ledgerVersion' in c) || (c.ledgerVersion is int && c.ledgerVersion >= 0));
+        }
+        allow create: if envelope(id) && validCustomer()
+          && request.resource.data.value.keys().hasOnly(['id','name','phone']);
+        allow update: if envelope(id) && validCustomer();
+      }
+      match /orders/{id} {
+        function amounts() {
+          let o = request.resource.data.value;
+          return o.total is int && o.total >= 0 && o.subtotal is int && o.subtotal >= 0
+            && o.ship is int && o.ship >= 0 && o.total == o.subtotal + o.ship
+            && o.lines is list && o.lines.size() > 0 && o.payments is list
+            && o.status in ['Giữ hàng','Đã bán','Đã hủy'] && o.customerId is string;
+        }
+        allow create: if envelope(id) && amounts()
+          && request.resource.data.value.actor == request.auth.uid
+          && request.resource.data.value.requestId is string
+          && !exists(/databases/$(database)/documents/stores/$(storeId)/requests/$(request.resource.data.value.requestId))
+          && getAfter(/databases/$(database)/documents/stores/$(storeId)/requests/$(request.resource.data.value.requestId)).data.value.orderId == id;
+        allow update: if envelope(id) && amounts()
+          && request.resource.data.value.diff(resource.data.value).affectedKeys()
+            .hasOnly(['status','soldAt','payments','refund','cancelledAt','cancelledBy','cancelReason']);
+      }
+      match /requests/{id} {
+        allow create: if envelope(id)
+          && getAfter(/databases/$(database)/documents/stores/$(storeId)/orders/$(request.resource.data.value.orderId)).data.value.requestId == id;
+      }
+      match /deliveries/{id} {
+        allow create, update: if envelope(id)
+          && request.resource.data.value.orderId is string
+          && request.resource.data.value.driver is string && request.resource.data.value.address is string
+          && request.resource.data.value.fee is int && request.resource.data.value.fee >= 0
+          && request.resource.data.value.cost is int && request.resource.data.value.cost >= 0
+          && request.resource.data.value.status in ['Đang giao','Đã xong','Đã hủy'];
+      }
+      match /payroll/{id} {
+        allow create, update: if envelope(id)
+          && request.resource.data.value.salary is int && request.resource.data.value.salary >= 0
+          && request.resource.data.value.advance is int && request.resource.data.value.advance >= 0
+          && request.resource.data.value.advance <= request.resource.data.value.salary;
+      }
+      match /audit/{id} {
+        allow create: if envelope(id) && request.resource.data.value.actor == request.auth.uid
+          && request.resource.data.value.action is string && request.resource.data.value.detail is string;
+        allow update, delete: if false;
+      }
+      match /stockMoves/{id} {
+        allow create: if envelope(id) && request.resource.data.value.actor == request.auth.uid
+          && request.resource.data.value.area is int && request.resource.data.value.product is string;
+        allow update, delete: if false;
+      }
+      match /notifications/{id} {
+        allow create: if envelope(id)
+          && request.resource.data.value.status == 'Chưa gửi • chưa kết nối Messenger';
+        allow update, delete: if false;
+      }
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

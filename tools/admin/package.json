@@ -1,0 +1,6 @@
+{
+  "name": "bay-hai-trusted-administration",
+  "private": true,
+  "type": "module",
+  "dependencies": { "firebase-admin": "^13.0.0" }
+}

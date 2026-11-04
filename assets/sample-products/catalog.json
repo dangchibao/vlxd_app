@@ -1,0 +1,6 @@
+[
+  {"id":"MAU-GACH-6060","code":"MAU-GACH-6060","name":"Gạch vân đá trắng 60×60 [Mẫu]","size":"60×60","supplier":"Nhà cung cấp mẫu","price":180000,"ratio":14400,"minimum":144000,"quantity":720000,"cost":125000,"image":"gach.jpg"},
+  {"id":"MAU-GACH-3060","code":"MAU-GACH-3060","name":"Gạch ốp tường vân trắng 30×60 [Mẫu]","size":"30×60","supplier":"Nhà cung cấp mẫu","price":150000,"ratio":14400,"minimum":144000,"quantity":432000,"cost":105000,"image":"gach.jpg"},
+  {"id":"MAU-DA-12","code":"MAU-DA-12","name":"Đá xây dựng 1×2 [Mẫu]","size":"m³","supplier":"Vật liệu rời mẫu","price":420000,"ratio":10000,"minimum":30000,"quantity":200000,"cost":310000,"image":"da.jpg"},
+  {"id":"MAU-CAT-XAY","code":"MAU-CAT-XAY","name":"Cát xây dựng [Mẫu]","size":"m³","supplier":"Vật liệu rời mẫu","price":350000,"ratio":10000,"minimum":30000,"quantity":250000,"cost":240000,"image":"cat.jpg"}
+]
