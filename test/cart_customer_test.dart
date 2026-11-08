@@ -48,11 +48,13 @@ void main() {
           tester.widget<DropdownButtonFormField<String>>(selector).initialValue,
           customer['id'],
         );
+
         expect(find.text('Khách mới chị Hương'), findsWidgets);
         expect(
           tester.widget<TextField>(input('Phí giao hàng (đ)')).controller!.text,
-          '50000',
+          '50 000',
         );
+
         expect(c.cart, hasLength(1));
 
         // Opening the list proves the saved customer is also available for later selection.

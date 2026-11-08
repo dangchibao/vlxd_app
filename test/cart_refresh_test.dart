@@ -40,7 +40,7 @@ void main() {
       expect(find.text(money(cartonTotal + 50000)), findsOneWidget);
       expect(
         tester.widget<TextField>(shippingField()).controller!.text,
-        '50000',
+        '50 000',
       );
       await tester.tap(find.byTooltip('Thêm một thùng'));
       await tester.pumpAndSettle();

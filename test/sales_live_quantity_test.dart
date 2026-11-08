@@ -187,7 +187,7 @@ void main() {
       );
       await tester.showKeyboard(field);
       const value = TextEditingValue(
-        text: '50000',
+        text: '50 000',
         selection: TextSelection.collapsed(offset: 2),
       );
       tester.testTextInput.updateEditingValue(value);
