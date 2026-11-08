@@ -67,4 +67,49 @@ class OutboxRepository {
       ),
     );
   }
+
+  // Lấy một thao tác chờ và chuyển sang trạng thái đang đồng bộ.
+  Future<PendingOperation?> claimNext() async {
+    return db.transaction(() async {
+      final items =
+          await (db.select(db.pendingOperations)
+                ..where((t) => t.status.equals('pending'))
+                ..orderBy([
+                  (t) => OrderingTerm.asc(t.createdAt),
+                  (t) => OrderingTerm.asc(t.id),
+                ])
+                ..limit(1))
+              .get();
+
+      if (items.isEmpty) return null;
+
+      final item = items.first;
+
+      final changed =
+          await (db.update(db.pendingOperations)..where(
+                (t) => t.id.equals(item.id) & t.status.equals('pending'),
+              ))
+              .write(
+                PendingOperationsCompanion(
+                  status: const Value('syncing'),
+                  attempts: Value(item.attempts + 1),
+                  lastError: const Value(null),
+                ),
+              );
+
+      if (changed != 1) return null;
+
+      return (db.select(
+        db.pendingOperations,
+      )..where((t) => t.id.equals(item.id))).getSingle();
+    });
+  }
+
+  // Khôi phục thao tác đang đồng bộ nhưng bị gián đoạn.
+  // Chỉ gọi khi không còn worker đồng bộ cũ đang hoạt động.
+  Future<int> recoverInterrupted() async {
+    return (db.update(db.pendingOperations)
+          ..where((t) => t.status.equals('syncing')))
+        .write(const PendingOperationsCompanion(status: Value('pending')));
+  }
 }

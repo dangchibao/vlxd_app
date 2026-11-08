@@ -91,4 +91,51 @@ void main() {
 
     expect(all.length, 1);
   });
+
+  test('claimNext chuyển pending sang syncing', () async {
+    await outbox.enqueue(
+      id: 'claim-001',
+      operationType: 'checkout.v1',
+      payloadJson: '{"requestId":"claim-001"}',
+    );
+
+    final claimed = await outbox.claimNext();
+
+    expect(claimed, isNotNull);
+    expect(claimed!.id, 'claim-001');
+    expect(claimed.status, 'syncing');
+    expect(claimed.attempts, 1);
+
+    // Không lấy lại thao tác đang được xử lý.
+    final secondClaim = await outbox.claimNext();
+    expect(secondClaim, isNull);
+  });
+
+  test('recoverInterrupted khôi phục thao tác bị gián đoạn', () async {
+    await outbox.enqueue(
+      id: 'recover-001',
+      operationType: 'checkout.v1',
+      payloadJson: '{"requestId":"recover-001"}',
+    );
+
+    await outbox.claimNext();
+
+    final recoveredCount = await outbox.recoverInterrupted();
+
+    expect(recoveredCount, 1);
+
+    final pending = await outbox.getPending();
+
+    expect(pending.length, 1);
+    expect(pending.single.id, 'recover-001');
+    expect(pending.single.status, 'pending');
+    expect(pending.single.attempts, 1);
+
+    // Sau khi khôi phục, có thể nhận lại thao tác.
+    final claimedAgain = await outbox.claimNext();
+
+    expect(claimedAgain, isNotNull);
+    expect(claimedAgain!.status, 'syncing');
+    expect(claimedAgain.attempts, 2);
+  });
 }
