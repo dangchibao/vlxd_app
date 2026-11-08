@@ -15,6 +15,14 @@ import 'firebase_options.dart';
 import 'domain/shop.dart';
 import 'ui/app.dart';
 
+import 'data/local/app_database.dart';
+import 'data/sync/outbox_repository.dart';
+import 'data/sync/sync_engine.dart';
+import 'data/sync/sync_runtime.dart';
+import 'data/sync/firebase_checkout_dispatcher.dart';
+import 'data/sync/firebase_request_verifier.dart';
+import 'data/sync/outbox_reconciler.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (!kIsWeb &&
@@ -63,9 +71,46 @@ Future<void> main() async {
         await auth.useAuthEmulator(host, 9099);
         firestore.useFirestoreEmulator(host, 8080);
       }
-      final shop = Get.put(
-        ShopController(FirestoreRepository(firestore), ShopData.empty()),
+
+      final repository = FirestoreRepository(firestore);
+
+      final shop = Get.put(ShopController(repository, ShopData.empty()));
+
+      // Database cục bộ.
+      final localDb = Get.put(AppDatabase(), permanent: true);
+
+      // Hàng đợi thao tác offline.
+      final outbox = Get.put(OutboxRepository(localDb), permanent: true);
+
+      // Xác minh hóa đơn với Firebase.
+      final verifier = FirebaseRequestVerifier(firestore);
+
+      // Dispatcher xử lý checkout.v1.
+      final checkoutDispatcher = FirebaseCheckoutDispatcher(
+        auth: auth,
+        repository: repository,
+        verifier: verifier,
       );
+
+      // Bộ máy đồng bộ.
+      final syncEngine = SyncEngine(
+        outbox: outbox,
+        dispatcher: checkoutDispatcher.dispatch,
+      );
+
+      // Điều phối đồng bộ.
+
+      final reconciler = OutboxReconciler(
+        outbox: outbox,
+        verifyRequest: verifier.verify,
+      );
+
+      Get.put(
+        SyncRuntime(outbox: outbox, reconciler: reconciler, engine: syncEngine),
+        permanent: true,
+      );
+
+      // Giữ nguyên cơ chế đăng nhập hiện có.
       Get.put(SessionController(auth, firestore, shop));
     }
     runApp(const BayHaiApp());

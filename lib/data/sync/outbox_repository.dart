@@ -112,4 +112,19 @@ class OutboxRepository {
           ..where((t) => t.status.equals('syncing')))
         .write(const PendingOperationsCompanion(status: Value('pending')));
   }
+
+  /// Cách ly các thao tác bị gián đoạn.
+  /// Không tự động gửi lại khi chưa xác minh Firebase.
+  Future<int> quarantineInterrupted() async {
+    return (db.update(
+      db.pendingOperations,
+    )..where((t) => t.status.equals('syncing'))).write(
+      const PendingOperationsCompanion(
+        status: Value('failed'),
+        lastError: Value(
+          'Giao dịch bị gián đoạn. Cần xác minh server trước khi gửi lại.',
+        ),
+      ),
+    );
+  }
 }
