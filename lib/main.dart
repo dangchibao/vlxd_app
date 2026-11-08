@@ -22,6 +22,7 @@ import 'data/sync/sync_runtime.dart';
 import 'data/sync/firebase_checkout_dispatcher.dart';
 import 'data/sync/firebase_request_verifier.dart';
 import 'data/sync/outbox_reconciler.dart';
+import 'data/sync/auto_sync_coordinator.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -106,10 +107,31 @@ Future<void> main() async {
         verifyRequest: verifier.verify,
       );
 
-      Get.put(
+      final syncRuntime = Get.put(
         SyncRuntime(outbox: outbox, reconciler: reconciler, engine: syncEngine),
         permanent: true,
       );
+
+      // Opt-in: only enable after validation against Firebase Emulator.
+      const autoSyncEnabled = bool.fromEnvironment(
+        'AUTO_SYNC_OUTBOX',
+        defaultValue: false,
+      );
+      if (autoSyncEnabled) {
+        final autoSync = Get.put(
+          AutoSyncCoordinator(
+            auth: auth,
+            shop: shop,
+            outbox: outbox,
+            verifier: verifier,
+            reconciler: reconciler,
+            engine: syncEngine,
+            runtime: syncRuntime,
+          ),
+          permanent: true,
+        );
+        autoSync.start();
+      }
 
       // Giữ nguyên cơ chế đăng nhập hiện có.
       Get.put(SessionController(auth, firestore, shop));
