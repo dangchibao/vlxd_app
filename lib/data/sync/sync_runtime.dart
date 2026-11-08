@@ -23,17 +23,30 @@ class SyncRuntime {
   ///
   /// Khôi phục trạng thái các thao tác bị gián đoạn,
   /// nhưng chưa tự gửi lại.
+
   Future<void> initialize() async {
     if (_running) return;
 
     _running = true;
 
     try {
+      // Cách ly các giao dịch đồng bộ bị gián đoạn.
+      // Tuyệt đối không tự chuyển chúng về pending.
       await outbox.quarantineInterrupted();
 
-      final pending = await outbox.getPending();
+      // Đọc cả pending và failed để đối chiếu với server.
+      // Không gọi engine.processNext() hoặc drain().
+      final operations = await outbox.db
+          .select(outbox.db.pendingOperations)
+          .get();
 
-      for (final operation in pending) {
+      for (final operation in operations) {
+        if (operation.status != 'pending' && operation.status != 'failed') {
+          continue;
+        }
+
+        // Reconciler chỉ đánh dấu synced khi server xác nhận.
+        // notFound hoặc uncertain không kích hoạt gửi lại.
         await reconciler.reconcile(operation.id);
       }
     } finally {
@@ -41,10 +54,6 @@ class SyncRuntime {
     }
   }
 
-  /// Xử lý các thao tác pending.
-  ///
-  /// Chỉ gọi sau khi hoàn thành bước khôi phục
-  /// và xác định được điều kiện gửi an toàn.
   Future<void> drain() async {
     if (_running) return;
 
