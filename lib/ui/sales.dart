@@ -618,6 +618,7 @@ class _CartPanelState extends State<CartPanel> {
       reason = TextEditingController();
   String customerId = '';
   bool hold = false;
+  int? _seenDraftFormRevision;
 
   // Cache one Outbox check per requestId, rather than launching a new
   // database read whenever the cart widget rebuilds.
@@ -651,14 +652,33 @@ class _CartPanelState extends State<CartPanel> {
   void initState() {
     super.initState();
     shipping.addListener(refresh);
+    paid.addListener(_saveFormDraft);
+    shipping.addListener(_saveFormDraft);
+    reason.addListener(_saveFormDraft);
+  }
+
+  void _saveFormDraft() {
+    if (!Get.isRegistered<ShopController>()) return;
+    final shop = Get.find<ShopController>();
+    if (!shop.isLive || shop.cart.isEmpty || shop.cartEditingLocked) return;
+    shop.updateDraftForm(
+      customerId: customerId,
+      shippingText: shipping.text,
+      paidText: paid.text,
+      hold: hold,
+      negativeReason: reason.text,
+    );
   }
 
   void refresh() {
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    paid.removeListener(_saveFormDraft);
+    shipping.removeListener(_saveFormDraft);
+    reason.removeListener(_saveFormDraft);
     paid.dispose();
     shipping.dispose();
     reason.dispose();
@@ -670,6 +690,16 @@ class _CartPanelState extends State<CartPanel> {
       GetBuilder<ShopController>(builder: (c) => _buildCart(context, c));
 
   Widget _buildCart(BuildContext context, ShopController c) {
+    if (c.isLive && _seenDraftFormRevision != c.draftFormRevision) {
+      // Phục hồi cả trường đang nhập sau khi controller khôi phục nháp.
+      // Ghi trực tiếp vào controller text (không gọi setState trong build).
+      _seenDraftFormRevision = c.draftFormRevision;
+      customerId = c.draftCustomerId;
+      hold = c.draftHold;
+      shipping.text = c.draftShippingText;
+      paid.text = c.draftPaidText;
+      reason.text = c.draftNegativeReason;
+    }
     if (!c.isLive) return _buildCartBody(context, c, false);
 
     return FutureBuilder<String?>(
@@ -727,7 +757,12 @@ class _CartPanelState extends State<CartPanel> {
                     ),
                   ),
             ],
-            onChanged: locked ? null : (v) => setState(() => customerId = v!),
+            onChanged: locked
+                ? null
+                : (v) {
+                    setState(() => customerId = v!);
+                    _saveFormDraft();
+                  },
           ),
           Align(
             alignment: Alignment.centerLeft,
@@ -738,6 +773,7 @@ class _CartPanelState extends State<CartPanel> {
                       final id = await editCustomer(context);
                       if (id != null && mounted) {
                         setState(() => customerId = id);
+                        _saveFormDraft();
                       }
                     },
               icon: const Icon(Icons.person_add_alt_1_outlined, size: 20),
@@ -866,7 +902,12 @@ class _CartPanelState extends State<CartPanel> {
             contentPadding: EdgeInsets.zero,
             title: const Text('Giữ hàng / đặt cọc'),
             value: hold,
-            onChanged: locked ? null : (v) => setState(() => hold = v),
+            onChanged: locked
+                ? null
+                : (v) {
+                    setState(() => hold = v);
+                    _saveFormDraft();
+                  },
           ),
           if (exceeds) ...[
             badge('Vượt tồn • cần xác nhận bán âm', warning: true),

@@ -35,6 +35,11 @@ class CartDraftRepository {
     required String actorId,
     required String requestId,
     required List<Map<String, Object?>> lines,
+    String customerId = '',
+    String shippingText = '0',
+    String paidText = '',
+    bool hold = false,
+    String negativeReason = '',
   }) {
     if (actorId.isEmpty || requestId.isEmpty) {
       throw ArgumentError('Nháp cần tài khoản và mã giao dịch hợp lệ.');
@@ -44,6 +49,11 @@ class CartDraftRepository {
       'actorId': actorId,
       'requestId': requestId,
       'lines': lines,
+      'customerId': customerId,
+      'shippingText': shippingText,
+      'paidText': paidText,
+      'hold': hold,
+      'negativeReason': negativeReason,
     });
     return _serial(
       () => db.customStatement(

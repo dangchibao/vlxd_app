@@ -28,6 +28,27 @@ void main() {
     expect(await drafts.read('nv2'), isNull);
   });
 
+  test('Giữ thông tin khách, phí giao, cọc và trạng thái giữ hàng', () async {
+    await drafts.save(
+      actorId: 'nv1',
+      requestId: 'req-form',
+      lines: [
+        {'productId': 'PR6060VD', 'area': 10000, 'note': ''},
+      ],
+      customerId: 'KH001',
+      shippingText: '25000',
+      paidText: '300000',
+      hold: true,
+      negativeReason: 'Giao sau',
+    );
+    final raw = (await drafts.read('nv1'))!;
+    expect(raw['customerId'], 'KH001');
+    expect(raw['shippingText'], '25000');
+    expect(raw['paidText'], '300000');
+    expect(raw['hold'], isTrue);
+    expect(raw['negativeReason'], 'Giao sau');
+  });
+
   test('Ghi nháp mới không bị bản cũ ghi đè', () async {
     final first = drafts.save(
       actorId: 'nv1',

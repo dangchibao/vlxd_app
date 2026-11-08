@@ -60,6 +60,30 @@ void main() {
     restarted.onClose();
   });
 
+  test('Khôi phục đầy đủ thông tin nháp thanh toán', () async {
+    c.requestId = 'draft-full';
+    c.addCart(c.data.product('PR6060VD'), 14400);
+    c.updateDraftForm(
+      customerId: 'KH001',
+      shippingText: '15000',
+      paidText: '50000',
+      hold: true,
+      negativeReason: 'Chờ khách xác nhận',
+    );
+    await drafts.flush();
+    final restarted = ShopController(_FakeLiveRepository(), ShopData.sample());
+    restarted.attachCheckoutOutbox(outbox);
+    restarted.attachCartDrafts(drafts);
+    restarted.actor = const Actor('employee-001', Role.owner);
+    expect(await restarted.restoreLocalDraft(), isTrue);
+    expect(restarted.draftCustomerId, 'KH001');
+    expect(restarted.draftShippingText, '15000');
+    expect(restarted.draftPaidText, '50000');
+    expect(restarted.draftHold, isTrue);
+    expect(restarted.draftNegativeReason, 'Chờ khách xác nhận');
+    restarted.onClose();
+  });
+
   test('Không khôi phục thành giỏ mới khi request đã vào Outbox', () async {
     c.requestId = 'draft-outbox-1';
     c.addCart(c.data.product('PR6060VD'), 14400);

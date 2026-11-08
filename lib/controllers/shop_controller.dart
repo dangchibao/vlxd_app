@@ -27,6 +27,39 @@ class ShopController extends GetxController {
   CartDraftRepository? _drafts;
   String? draftSaveError;
 
+  // Thông tin nhập dở chỉ lưu cục bộ, không có giá trị giao dịch.
+  String draftCustomerId = '';
+  String draftShippingText = '0';
+  String draftPaidText = '';
+  String draftNegativeReason = '';
+  bool draftHold = false;
+  int draftFormRevision = 0;
+
+  void updateDraftForm({
+    required String customerId,
+    required String shippingText,
+    required String paidText,
+    required bool hold,
+    required String negativeReason,
+  }) {
+    if (cartEditingLocked) return;
+    draftCustomerId = customerId;
+    draftShippingText = shippingText;
+    draftPaidText = paidText;
+    draftHold = hold;
+    draftNegativeReason = negativeReason;
+    _cartChanged();
+  }
+
+  void _resetDraftForm() {
+    draftCustomerId = '';
+    draftShippingText = '0';
+    draftPaidText = '';
+    draftHold = false;
+    draftNegativeReason = '';
+    draftFormRevision++;
+  }
+
   void attachCartDrafts(CartDraftRepository drafts) {
     _drafts = drafts;
   }
@@ -53,7 +86,16 @@ class ShopController extends GetxController {
         .toList();
     final task = lines.isEmpty
         ? drafts.delete(owner)
-        : drafts.save(actorId: owner, requestId: id, lines: lines);
+        : drafts.save(
+            actorId: owner,
+            requestId: id,
+            lines: lines,
+            customerId: draftCustomerId,
+            shippingText: draftShippingText,
+            paidText: draftPaidText,
+            hold: draftHold,
+            negativeReason: draftNegativeReason,
+          );
     task.then(
       (_) {
         draftSaveError = null;
@@ -116,10 +158,36 @@ class ShopController extends GetxController {
         cartEditingLocked) {
       return false;
     }
+    // Nháp v1 cũ không có các trường này; lấy giá trị mặc định.
+    final customerId = raw['customerId'];
+    final shippingText = raw['shippingText'];
+    final paidText = raw['paidText'];
+    final hold = raw['hold'];
+    final negativeReason = raw['negativeReason'];
+    if ((customerId != null && customerId is! String) ||
+        (shippingText != null && shippingText is! String) ||
+        (paidText != null && paidText is! String) ||
+        (hold != null && hold is! bool) ||
+        (negativeReason != null && negativeReason is! String)) {
+      throw const FormatException('Thông tin thanh toán trong nháp bị lỗi.');
+    }
+    final recoveredCustomer = customerId is String ? customerId : '';
+    if (recoveredCustomer.isNotEmpty &&
+        !data.customers.any(
+          (customer) => customer['id'] == recoveredCustomer,
+        )) {
+      throw StateError('Khách hàng trong giỏ nháp không còn trong danh sách.');
+    }
     _internalCartMutation = true;
     try {
       _requestId = id;
       cart.addAll(recovered);
+      draftCustomerId = recoveredCustomer;
+      draftShippingText = shippingText is String ? shippingText : '0';
+      draftPaidText = paidText is String ? paidText : '';
+      draftHold = hold is bool ? hold : false;
+      draftNegativeReason = negativeReason is String ? negativeReason : '';
+      draftFormRevision++;
     } finally {
       _internalCartMutation = false;
     }
@@ -231,6 +299,7 @@ class ShopController extends GetxController {
     data = ShopData.empty();
     _clearCartInternally();
     _cartWriteLocked = false;
+    _resetDraftForm();
 
     page = 0;
     requestId = const Uuid().v4();
@@ -595,6 +664,7 @@ class ShopController extends GetxController {
       _clearCartInternally();
       _requestId = const Uuid().v4();
       _cartWriteLocked = false;
+      _resetDraftForm();
       try {
         await _drafts?.delete(oldActorId);
       } catch (_) {}
@@ -680,6 +750,7 @@ class ShopController extends GetxController {
 
       _clearCartInternally();
       _requestId = const Uuid().v4();
+      _resetDraftForm();
       try {
         if (actor != null) await _drafts?.delete(actor!.id);
       } catch (_) {}
