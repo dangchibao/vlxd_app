@@ -70,17 +70,27 @@ class OutboxReconciler {
         }
 
         // Chỉ chuyển bản ghi chưa được xác nhận.
-        await (db.update(db.pendingOperations)..where(
-              (t) =>
-                  t.id.equals(operationId) &
-                  t.status.isIn(['pending', 'failed']),
-            ))
-            .write(
-              const PendingOperationsCompanion(
-                status: Value('synced'),
-                lastError: Value(null),
-              ),
-            );
+
+        // Chỉ xác nhận thành công nếu SQLite thực sự
+        // chuyển được bản ghi sang trạng thái synced.
+        final updated =
+            await (db.update(db.pendingOperations)..where(
+                  (t) =>
+                      t.id.equals(operationId) &
+                      t.status.isIn(['pending', 'failed']),
+                ))
+                .write(
+                  const PendingOperationsCompanion(
+                    status: Value('synced'),
+                    lastError: Value(null),
+                  ),
+                );
+
+        if (updated != 1) {
+          // Bản ghi có thể đã được worker khác nhận xử lý.
+          // Không báo thành công khi chưa cập nhật được.
+          return ReconcileResult.uncertain;
+        }
 
         return ReconcileResult.confirmed;
 
