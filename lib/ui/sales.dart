@@ -33,6 +33,23 @@ class SalesPage extends StatelessWidget {
                         icon: const Icon(Icons.add),
                         label: const Text('Tạo sản phẩm'),
                       ),
+                      if (c.isLive)
+                        OutlinedButton.icon(
+                          key: const ValueKey('restore-local-cart-draft'),
+                          onPressed:
+                              c.busy || c.cart.isNotEmpty || c.cartEditingLocked
+                              ? null
+                              : () => attempt(() async {
+                                  final restored = await c.restoreLocalDraft();
+                                  if (!restored) {
+                                    throw StateError(
+                                      'Không có giỏ nháp phù hợp để khôi phục.',
+                                    );
+                                  }
+                                }),
+                          icon: const Icon(Icons.restore),
+                          label: const Text('Khôi phục giỏ nháp'),
+                        ),
                       OutlinedButton.icon(
                         onPressed: () => scanProduct(context),
                         icon: const Icon(Icons.qr_code_scanner),
@@ -63,7 +80,6 @@ class SalesPage extends StatelessWidget {
                       OutlinedButton.icon(
                         onPressed: () => Navigator.push(
                           context,
-
                           MaterialPageRoute<void>(
                             builder: (_) => const OrdersPage(),
                           ),

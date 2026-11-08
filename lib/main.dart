@@ -16,6 +16,7 @@ import 'domain/shop.dart';
 import 'ui/app.dart';
 
 import 'data/local/app_database.dart';
+import 'data/local/cart_draft_repository.dart';
 import 'data/sync/outbox_repository.dart';
 import 'data/sync/sync_engine.dart';
 import 'data/sync/sync_runtime.dart';
@@ -83,6 +84,9 @@ Future<void> main() async {
       // Hàng đợi thao tác offline.
       final outbox = Get.put(OutboxRepository(localDb), permanent: true);
       shop.attachCheckoutOutbox(outbox);
+      shop.attachCartDrafts(
+        Get.put(CartDraftRepository(localDb), permanent: true),
+      );
 
       // Xác minh hóa đơn với Firebase.
       final verifier = FirebaseRequestVerifier(firestore);

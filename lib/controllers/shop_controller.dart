@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import 'package:uuid/uuid.dart';
 
 import '../data/demo_repository.dart';
+import '../data/local/cart_draft_repository.dart';
 import '../data/sync/offline_checkout_command.dart';
 import '../data/sync/outbox_repository.dart';
 import '../domain/shop.dart';
@@ -23,6 +24,109 @@ class ShopController extends GetxController {
   int _session = 0;
 
   OutboxRepository? _checkoutOutbox;
+  CartDraftRepository? _drafts;
+  String? draftSaveError;
+
+  void attachCartDrafts(CartDraftRepository drafts) {
+    _drafts = drafts;
+  }
+
+  void _cartChanged() {
+    if (_internalCartMutation ||
+        !isLive ||
+        actor == null ||
+        cartEditingLocked) {
+      return;
+    }
+    final drafts = _drafts;
+    if (drafts == null) return;
+    final owner = actor!.id;
+    final id = requestId;
+    final lines = cart
+        .map(
+          (l) => <String, Object?>{
+            'productId': l.productId,
+            'area': l.area,
+            'note': l.note,
+          },
+        )
+        .toList();
+    final task = lines.isEmpty
+        ? drafts.delete(owner)
+        : drafts.save(actorId: owner, requestId: id, lines: lines);
+    task.then(
+      (_) {
+        draftSaveError = null;
+      },
+      onError: (Object error) {
+        draftSaveError = 'Không lưu được giỏ nháp trên máy: $error';
+        update();
+      },
+    );
+  }
+
+  /// Khôi phục thủ công để không tự chèn hàng vào giỏ đã bắt đầu bán.
+  /// Không phục hồi nháp nếu requestId đó đã nằm trong Outbox.
+  Future<bool> restoreLocalDraft() async {
+    final drafts = _drafts;
+    final owner = actor?.id;
+    if (!isLive || drafts == null || owner == null) return false;
+    if (cart.isNotEmpty || busy || cartEditingLocked) return false;
+    final generation = _session;
+    final raw = await drafts.read(owner);
+    if (raw == null) return false;
+    final id = raw['requestId'];
+    final storedLines = raw['lines'];
+    if (id is! String ||
+        id.isEmpty ||
+        storedLines is! List ||
+        storedLines.isEmpty) {
+      throw const FormatException('Giỏ nháp không có dữ liệu hợp lệ.');
+    }
+    if (await _checkoutOutbox?.getById(id) != null) {
+      // Đã lưu thành đơn: không được phục hồi như một giỏ chưa bán.
+      return false;
+    }
+    final recovered = <CartLine>[];
+    for (final entry in storedLines) {
+      if (entry is! Map ||
+          entry['productId'] is! String ||
+          entry['area'] is! int ||
+          entry['area'] <= 0 ||
+          entry['note'] is! String) {
+        throw const FormatException('Dữ liệu sản phẩm trong nháp bị lỗi.');
+      }
+      final productId = entry['productId'] as String;
+      if (!data.products.any((p) => p.id == productId && p.active)) {
+        throw StateError(
+          'Sản phẩm trong giỏ nháp không còn khả dụng: $productId',
+        );
+      }
+      recovered.add(
+        CartLine(
+          productId,
+          entry['area'] as int,
+          note: entry['note'] as String,
+        ),
+      );
+    }
+    if (generation != _session ||
+        actor?.id != owner ||
+        cart.isNotEmpty ||
+        cartEditingLocked) {
+      return false;
+    }
+    _internalCartMutation = true;
+    try {
+      _requestId = id;
+      cart.addAll(recovered);
+    } finally {
+      _internalCartMutation = false;
+    }
+    update();
+    return true;
+  }
+
   bool _checkoutGuardRunning = false;
   bool _cartWriteLocked = false;
   bool _internalCartMutation = false;
@@ -69,7 +173,10 @@ class ShopController extends GetxController {
     _requestId = value;
   }
 
-  late final List<CartLine> cart = _ProtectedCart(_ensureCartEditable);
+  late final List<CartLine> cart = _ProtectedCart(
+    _ensureCartEditable,
+    _cartChanged,
+  );
 
   ShopController(this.repository, this.data);
 
@@ -381,6 +488,7 @@ class ShopController extends GetxController {
     );
 
     final generation = _session;
+    final currentActorId = actor!.id;
     _cartWriteLocked = true;
     busy = true;
     update();
@@ -396,7 +504,11 @@ class ShopController extends GetxController {
         );
       }
 
-      // Đây là requestId chờ đồng bộ, không phải hóa đơn đã xác nhận.
+      // Đã lưu thành Outbox: nháp không còn là đơn đang nhập dở.
+      // Lỗi xóa nháp không được coi là lỗi ghi Outbox để tránh gửi trùng.
+      try {
+        await _drafts?.delete(currentActorId);
+      } catch (_) {}
       return command.requestId;
     } catch (_) {
       // Lỗi khi ghi Drift có thể xảy ra sau khi bản ghi đã được tạo.
@@ -483,6 +595,9 @@ class ShopController extends GetxController {
       _clearCartInternally();
       _requestId = const Uuid().v4();
       _cartWriteLocked = false;
+      try {
+        await _drafts?.delete(oldActorId);
+      } catch (_) {}
     } finally {
       _checkoutGuardRunning = false;
       busy = false;
@@ -565,6 +680,9 @@ class ShopController extends GetxController {
 
       _clearCartInternally();
       _requestId = const Uuid().v4();
+      try {
+        if (actor != null) await _drafts?.delete(actor!.id);
+      } catch (_) {}
       update();
       return result;
     } finally {
@@ -586,9 +704,10 @@ class ShopController extends GetxController {
 /// Danh sách giỏ hàng có chặn ghi ở tầng controller.
 /// Các thao tác thông qua c.cart (kể cả removeWhere/clear/[]=) đi qua guard.
 class _ProtectedCart extends ListBase<CartLine> {
-  _ProtectedCart(this._check);
+  _ProtectedCart(this._check, this._changed);
 
   final void Function() _check;
+  final void Function() _changed;
   final List<CartLine> _items = <CartLine>[];
 
   @override
@@ -598,6 +717,7 @@ class _ProtectedCart extends ListBase<CartLine> {
   set length(int value) {
     _check();
     _items.length = value;
+    _changed();
   }
 
   @override
@@ -607,65 +727,78 @@ class _ProtectedCart extends ListBase<CartLine> {
   void operator []=(int index, CartLine value) {
     _check();
     _items[index] = value;
+    _changed();
   }
 
   @override
   void add(CartLine value) {
     _check();
     _items.add(value);
+    _changed();
   }
 
   @override
   void addAll(Iterable<CartLine> values) {
     _check();
     _items.addAll(values);
+    _changed();
   }
 
   @override
   void clear() {
     _check();
     _items.clear();
-  }
-
-  @override
-  bool remove(Object? value) {
-    _check();
-    return _items.remove(value);
+    _changed();
   }
 
   @override
   CartLine removeAt(int index) {
     _check();
-    return _items.removeAt(index);
+    final result = _items.removeAt(index);
+    _changed();
+    return result;
   }
 
   @override
   void removeWhere(bool Function(CartLine) test) {
     _check();
     _items.removeWhere(test);
+    _changed();
+  }
+
+  @override
+  bool remove(Object? value) {
+    _check();
+    final didRemove = _items.remove(value);
+    if (didRemove) _changed();
+    return didRemove;
   }
 
   @override
   void retainWhere(bool Function(CartLine) test) {
     _check();
     _items.retainWhere(test);
+    _changed();
   }
 
   @override
   void insert(int index, CartLine element) {
     _check();
     _items.insert(index, element);
+    _changed();
   }
 
   @override
   void insertAll(int index, Iterable<CartLine> iterable) {
     _check();
     _items.insertAll(index, iterable);
+    _changed();
   }
 
   @override
   void sort([int Function(CartLine, CartLine)? compare]) {
     _check();
     _items.sort(compare);
+    _changed();
   }
 }
