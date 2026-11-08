@@ -24,6 +24,7 @@ import 'package:firebase_core/firebase_core.dart';
 import '../domain/shop.dart';
 import '../domain/invoice_filter.dart';
 import 'print_service.dart';
+import '../utils/money_input_formatter.dart';
 part 'catalog.dart';
 part 'sales.dart';
 part 'operations.dart';
@@ -44,7 +45,7 @@ String day(String v) =>
     DateFormat('dd/MM/yyyy HH:mm').format(DateTime.parse(v).toLocal());
 double decimal(String v) =>
     double.tryParse(v.trim().replaceAll(',', '.')) ?? double.nan;
-int whole(String v) => int.tryParse(v.trim()) ?? -1;
+int whole(String v) => int.tryParse(v.replaceAll(' ', '').trim()) ?? -1;
 String newId() => const Uuid().v4();
 
 class BayHaiApp extends StatelessWidget {
@@ -537,19 +538,24 @@ Future<bool> confirm(BuildContext context, String title, String body) async =>
       ),
     ) ??
     false;
+
 Widget field(
   TextEditingController c,
   String label, {
   bool number = false,
+  bool moneyInput = false,
   bool enabled = true,
 }) => Padding(
   padding: const EdgeInsets.only(bottom: 12),
   child: TextField(
     controller: c,
     enabled: enabled,
-    keyboardType: number
+    keyboardType: moneyInput
+        ? TextInputType.number
+        : number
         ? const TextInputType.numberWithOptions(decimal: true)
         : TextInputType.text,
+    inputFormatters: moneyInput ? [const MoneyInputFormatter()] : null,
     decoration: InputDecoration(labelText: label),
   ),
 );

@@ -725,7 +725,7 @@ class _CartPanelState extends State<CartPanel> {
               ),
             );
           }),
-          field(shipping, 'Phí giao hàng (đ)', number: true),
+          field(shipping, 'Phí giao hàng (đ)', moneyInput: true),
           Row(
             children: [
               const Expanded(child: Text('Tổng thanh toán')),
@@ -744,7 +744,7 @@ class _CartPanelState extends State<CartPanel> {
           const SizedBox(height: 12),
           hint('Gợi ý cọc 30%: ${money(((c.subtotal + ship) * .3).round())}'),
           const SizedBox(height: 12),
-          field(paid, 'Tiền đã thu (đ) • bỏ trống để thu đủ', number: true),
+          field(paid, 'Tiền đã thu (đ) • bỏ trống để thu đủ', moneyInput: true),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Giữ hàng / đặt cọc'),

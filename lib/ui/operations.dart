@@ -115,7 +115,7 @@ Future<void> receiveStock(BuildContext context, Product p) async {
                   p.hasPackConversion ? 'Số thùng' : 'Số lượng (${p.unit})',
                   number: true,
                 ),
-                field(cost, 'Giá nhập đ/${p.unit}', number: true),
+                field(cost, 'Giá nhập đ/${p.unit}', moneyInput: true),
                 TextButton.icon(
                   onPressed: () async {
                     final selected = await showDatePicker(
@@ -457,8 +457,12 @@ Future<void> editDelivery(BuildContext context, {Json? original}) async {
                 field(driver, 'Tài xế'),
                 field(vehicle, 'Xe'),
                 field(address, 'Địa chỉ giao'),
-                field(fee, 'Phí thu khách đã chốt trên đơn (đ)', number: true),
-                field(cost, 'Chi phí trả tài xế (đ)', number: true),
+                field(
+                  fee,
+                  'Phí thu khách đã chốt trên đơn (đ)',
+                  moneyInput: true,
+                ),
+                field(cost, 'Chi phí trả tài xế (đ)', moneyInput: true),
                 hint(
                   'Phí chuyến lưu riêng để đối chiếu; không cộng thu khách lần nữa.',
                 ),
@@ -637,7 +641,7 @@ Future<void> collectPayment(BuildContext context, Json o) async {
       title: Text('Thu tiền ${o['id']}'),
       content: SizedBox(
         width: 400,
-        child: field(amount, 'Số tiền khách trả (đ)', number: true),
+        child: field(amount, 'Số tiền khách trả (đ)', moneyInput: true),
       ),
       actions: [
         TextButton(
@@ -672,8 +676,8 @@ Future<void> editSalary(BuildContext context, Json p) async {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            field(salary, 'Lương kỳ này (đ)', number: true),
-            field(advance, 'Tổng đã ứng / đã trả (đ)', number: true),
+            field(salary, 'Lương kỳ này (đ)', moneyInput: true),
+            field(advance, 'Tổng đã ứng / đã trả (đ)', moneyInput: true),
           ],
         ),
       ),

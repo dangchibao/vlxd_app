@@ -252,7 +252,7 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
                 field(name, 'Tên sản phẩm'),
                 field(size, 'Kích thước (tùy chọn; nhập m³ nếu bán theo khối)'),
                 field(supplier, 'Nhà cung cấp (tùy chọn)'),
-                field(price, 'Giá bán đ/đơn vị (m² hoặc m³)', number: true),
+                field(price, 'Giá bán đ/đơn vị (m² hoặc m³)', moneyInput: true),
                 field(
                   ratio,
                   'm² trong 1 thùng (không rõ thì để trống)',
