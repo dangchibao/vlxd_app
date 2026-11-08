@@ -206,6 +206,23 @@ class SalesPage extends StatelessWidget {
   }
 }
 
+// Ngăn thêm sản phẩm vào request đã lưu Outbox.
+// Đây là kiểm tra phía giao diện; quy tắc cuối cùng vẫn phải được giữ
+// tại controller khi tích hợp đường bán offline thật.
+Future<void> _ensureCartRequestIsEditable(ShopController c) async {
+  if (!c.isLive) return;
+  if (!Get.isRegistered<OutboxRepository>()) {
+    throw StateError('Chưa kết nối Outbox của cửa hàng.');
+  }
+  final operation = await Get.find<OutboxRepository>().getById(c.requestId);
+  if (operation != null) {
+    throw StateError(
+      'Đơn này đã có trong Outbox (${operation.status}). '
+      'Không thể thêm sản phẩm vào cùng mã giao dịch.',
+    );
+  }
+}
+
 Future<void> confirmProduct(
   BuildContext context,
   Product p, {
@@ -322,12 +339,14 @@ Future<void> confirmProduct(
               if (!n.isFinite || n <= 0) {
                 throw ArgumentError('Nhập số lượng dương.');
               }
+              // Cũng kiểm tra tại điểm ghi, không chỉ khóa nút trong giỏ.
+              await _ensureCartRequestIsEditable(c);
               c.addCart(
                 p,
                 (n * (unit == 'thùng' ? p.ratio : 10000)).round(),
                 note: note.text,
               );
-              Navigator.pop(ctx);
+              if (ctx.mounted) Navigator.pop(ctx);
             }),
             child: Text(existing ? 'Xác nhận cộng thêm' : 'Thêm vào giỏ hàng'),
           ),
@@ -610,6 +629,22 @@ class _CartPanelState extends State<CartPanel> {
       GetBuilder<ShopController>(builder: (c) => _buildCart(context, c));
 
   Widget _buildCart(BuildContext context, ShopController c) {
+    if (!c.isLive) return _buildCartBody(context, c, false);
+
+    return FutureBuilder<String?>(
+      future: _statusFor(c),
+      builder: (context, snapshot) {
+        // Khóa cả khi đang đọc và khi đọc thất bại (fail closed).
+        final locked =
+            snapshot.connectionState != ConnectionState.done ||
+            snapshot.hasError ||
+            snapshot.data != null;
+        return _buildCartBody(context, c, locked);
+      },
+    );
+  }
+
+  Widget _buildCartBody(BuildContext context, ShopController c, bool locked) {
     final exceeds = c.cart.any(
       (l) => l.area > c.data.product(l.productId).available,
     );
@@ -649,12 +684,12 @@ class _CartPanelState extends State<CartPanel> {
                     ),
                   ),
             ],
-            onChanged: (v) => setState(() => customerId = v!),
+            onChanged: locked ? null : (v) => setState(() => customerId = v!),
           ),
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton.icon(
-              onPressed: c.busy
+              onPressed: c.busy || locked
                   ? null
                   : () async {
                       final id = await editCustomer(context);
@@ -689,7 +724,7 @@ class _CartPanelState extends State<CartPanel> {
                       ),
                       IconButton(
                         tooltip: 'Bỏ khỏi giỏ',
-                        onPressed: c.busy
+                        onPressed: c.busy || locked
                             ? null
                             : () {
                                 c.cart.remove(l);
@@ -723,7 +758,7 @@ class _CartPanelState extends State<CartPanel> {
                       ),
                       IconButton(
                         tooltip: 'Bớt một ${p.packUnit}',
-                        onPressed: c.busy
+                        onPressed: c.busy || locked
                             ? null
                             : () {
                                 final i = c.cart.indexOf(l);
@@ -742,7 +777,7 @@ class _CartPanelState extends State<CartPanel> {
                       ),
                       IconButton(
                         tooltip: 'Thêm một ${p.packUnit}',
-                        onPressed: c.busy
+                        onPressed: c.busy || locked
                             ? null
                             : () => c.addCart(p, p.quantityStep, note: ''),
                         icon: const Icon(Icons.add_circle_outline),
@@ -754,7 +789,12 @@ class _CartPanelState extends State<CartPanel> {
               ),
             );
           }),
-          field(shipping, 'Phí giao hàng (đ)', moneyInput: true),
+          field(
+            shipping,
+            'Phí giao hàng (đ)',
+            moneyInput: true,
+            enabled: !locked,
+          ),
           Row(
             children: [
               const Expanded(child: Text('Tổng thanh toán')),
@@ -773,17 +813,22 @@ class _CartPanelState extends State<CartPanel> {
           const SizedBox(height: 12),
           hint('Gợi ý cọc 30%: ${money(((c.subtotal + ship) * .3).round())}'),
           const SizedBox(height: 12),
-          field(paid, 'Tiền đã thu (đ) • bỏ trống để thu đủ', moneyInput: true),
+          field(
+            paid,
+            'Tiền đã thu (đ) • bỏ trống để thu đủ',
+            moneyInput: true,
+            enabled: !locked,
+          ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Giữ hàng / đặt cọc'),
             value: hold,
-            onChanged: (v) => setState(() => hold = v),
+            onChanged: locked ? null : (v) => setState(() => hold = v),
           ),
           if (exceeds) ...[
             badge('Vượt tồn • cần xác nhận bán âm', warning: true),
             const SizedBox(height: 12),
-            field(reason, 'Lý do duyệt bán âm'),
+            field(reason, 'Lý do duyệt bán âm', enabled: !locked),
           ],
           const SizedBox(height: 8),
           // For real accounts, show Outbox status before attempting a sale.
@@ -797,6 +842,7 @@ class _CartPanelState extends State<CartPanel> {
               final status = snapshot.data;
               final alreadyQueued = c.isLive && status != null;
               final blocked =
+                  locked ||
                   c.busy ||
                   c.cart.isEmpty ||
                   checking ||
