@@ -32,14 +32,20 @@ class SyncEngine {
         await dispatcher(operation);
 
         // Chỉ đánh dấu khi bộ xử lý xác nhận thành công.
-        await outbox.markSynced(operation.id);
-
-        return SyncAttemptResult.synced;
+        final completed = await outbox.completeClaimed(
+          id: operation.id,
+          attempts: operation.attempts,
+        );
+        // An external state change won the race. Never report success.
+        return completed ? SyncAttemptResult.synced : SyncAttemptResult.failed;
       } catch (error) {
         final kind = SyncFailureClassifier.classify(error);
 
-        await outbox.markFailed(operation.id, '${kind.name}: $error');
-
+        await outbox.failClaimed(
+          id: operation.id,
+          attempts: operation.attempts,
+          error: '${kind.name}: $error',
+        );
         return SyncAttemptResult.failed;
       }
     } finally {

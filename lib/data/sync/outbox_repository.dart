@@ -66,7 +66,10 @@ class OutboxRepository {
   Future<List<PendingOperation>> getPending() {
     return (db.select(db.pendingOperations)
           ..where((t) => t.status.equals('pending'))
-          ..orderBy([(t) => OrderingTerm.asc(t.createdAt)]))
+          ..orderBy([
+            (t) => OrderingTerm.asc(t.createdAt),
+            (t) => OrderingTerm.asc(t.id),
+          ]))
         .get();
   }
 
@@ -141,6 +144,51 @@ class OutboxRepository {
         db.pendingOperations,
       )..where((t) => t.id.equals(item.id))).getSingle();
     });
+  }
+
+  /// Complete only the exact worker claim that performed the dispatch.
+  /// A late response must never overwrite a newer reconciliation outcome.
+  Future<bool> completeClaimed({
+    required String id,
+    required int attempts,
+  }) async {
+    final updated =
+        await (db.update(db.pendingOperations)..where(
+              (t) =>
+                  t.id.equals(id) &
+                  t.status.equals('syncing') &
+                  t.attempts.equals(attempts),
+            ))
+            .write(
+              const PendingOperationsCompanion(
+                status: Value('synced'),
+                lastError: Value(null),
+              ),
+            );
+    return updated == 1;
+  }
+
+  /// Quarantine only the exact worker claim that failed.
+  /// A verified synced order can never be demoted back to failed.
+  Future<bool> failClaimed({
+    required String id,
+    required int attempts,
+    required String error,
+  }) async {
+    final updated =
+        await (db.update(db.pendingOperations)..where(
+              (t) =>
+                  t.id.equals(id) &
+                  t.status.equals('syncing') &
+                  t.attempts.equals(attempts),
+            ))
+            .write(
+              PendingOperationsCompanion(
+                status: const Value('failed'),
+                lastError: Value(error),
+              ),
+            );
+    return updated == 1;
   }
 
   // Khôi phục thao tác đang đồng bộ nhưng bị gián đoạn.
