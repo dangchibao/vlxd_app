@@ -21,6 +21,14 @@ class ShopController extends GetxController {
   StreamSubscription<ShopData>? _subscription;
   int _session = 0;
 
+  OutboxRepository? _checkoutOutbox;
+  bool _checkoutGuardRunning = false;
+
+  /// Kết nối Outbox dùng để bảo vệ checkout online.
+  void attachCheckoutOutbox(OutboxRepository outbox) {
+    _checkoutOutbox = outbox;
+  }
+
   bool get isLive => repository is TransactionalShopRepository;
 
   int page = 0;
@@ -325,7 +333,7 @@ class ShopController extends GetxController {
     bool hold = false,
     String negativeReason = '',
   }) async {
-    if (busy) {
+    if (busy || _checkoutGuardRunning) {
       throw StateError('Đang xử lý giao dịch khác. Vui lòng chờ.');
     }
 
@@ -338,17 +346,13 @@ class ShopController extends GetxController {
     );
 
     final generation = _session;
-
     busy = true;
     update();
 
     try {
-      // Ghi bền vững vào Drift.
-      // Nếu lưu trùng requestId, Outbox sẽ báo lỗi.
+      // Chỉ lưu vào Drift. Không tự động gửi Firebase.
       await outbox.enqueueCheckout(command);
 
-      // Có thể đã lưu thành công nhưng phiên vừa thay đổi.
-      // Không tự gửi lại hoặc tạo thêm lệnh khác.
       if (generation != _session) {
         throw StateError(
           'Phiên đăng nhập đã thay đổi sau khi lưu Outbox. '
@@ -356,8 +360,7 @@ class ShopController extends GetxController {
         );
       }
 
-      // Chỉ trả về mã request, không phải mã hóa đơn
-      // đã được Firebase xác nhận.
+      // Đây là requestId chờ đồng bộ, không phải hóa đơn đã xác nhận.
       return command.requestId;
     } finally {
       busy = false;
@@ -376,50 +379,75 @@ class ShopController extends GetxController {
     bool hold = false,
     String negativeReason = '',
   }) async {
-    final id = requestId;
-    final lines = List<CartLine>.from(cart);
+    if (busy || _checkoutGuardRunning) {
+      throw StateError('Đang xử lý giao dịch khác. Vui lòng chờ.');
+    }
 
-    final quoted = {
-      for (final line in lines)
-        line.productId: (
-          price: data.product(line.productId).price,
-          ratio: data.product(line.productId).ratio,
-        ),
-    };
+    _checkoutGuardRunning = true;
+    try {
+      final id = requestId;
 
-    final result = await change((d, a) {
-      if (!d.orders.any((order) => order['requestId'] == id)) {
-        for (final entry in quoted.entries) {
-          final product = d.product(entry.key);
+      // Không cho lệnh đã được ghi vào Outbox đi qua checkout online.
+      // Với Live phải có Outbox để xác minh; Demo không cần.
+      if (isLive) {
+        final outbox = _checkoutOutbox;
+        if (outbox == null) {
+          throw StateError(
+            'Chưa kết nối Outbox. Không thể xác minh giao dịch trước khi chốt.',
+          );
+        }
 
-          if (product.price != entry.value.price ||
-              product.ratio != entry.value.ratio) {
-            throw StateError(
-              'Giá hoặc quy đổi vừa thay đổi. '
-              'Kiểm tra lại giỏ hàng trước khi xác nhận.',
-            );
-          }
+        final existing = await outbox.getById(id);
+        if (existing != null) {
+          throw StateError(
+            'Giao dịch $id đã nằm trong Outbox '
+            '(trạng thái: ${existing.status}). '
+            'Hãy kiểm tra lịch sử và trạng thái đồng bộ trước khi tiếp tục.',
+          );
         }
       }
 
-      return d.checkout(
-        requestId: id,
-        lines: lines,
-        customerId: customerId,
-        paid: paid,
-        ship: ship,
-        hold: hold,
-        actor: a,
-        negativeReason: negativeReason,
-      );
-    });
+      final lines = List<CartLine>.from(cart);
+      final quoted = {
+        for (final line in lines)
+          line.productId: (
+            price: data.product(line.productId).price,
+            ratio: data.product(line.productId).ratio,
+          ),
+      };
 
-    // Chỉ xóa giỏ sau khi checkout online thành công.
-    cart.clear();
-    requestId = const Uuid().v4();
-    update();
+      final result = await change((d, a) {
+        if (!d.orders.any((order) => order['requestId'] == id)) {
+          for (final entry in quoted.entries) {
+            final product = d.product(entry.key);
+            if (product.price != entry.value.price ||
+                product.ratio != entry.value.ratio) {
+              throw StateError(
+                'Giá hoặc quy đổi vừa thay đổi. '
+                'Kiểm tra lại giỏ hàng trước khi xác nhận.',
+              );
+            }
+          }
+        }
+        return d.checkout(
+          requestId: id,
+          lines: lines,
+          customerId: customerId,
+          paid: paid,
+          ship: ship,
+          hold: hold,
+          actor: a,
+          negativeReason: negativeReason,
+        );
+      });
 
-    return result;
+      cart.clear();
+      requestId = const Uuid().v4();
+      update();
+      return result;
+    } finally {
+      _checkoutGuardRunning = false;
+    }
   }
 
   // ============================================================

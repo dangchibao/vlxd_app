@@ -47,6 +47,9 @@ void main() {
 
     controller = ShopController(FakeLiveRepository(), ShopData.sample());
 
+    // Kết nối Outbox để bảo vệ checkout online.
+    controller.attachCheckoutOutbox(outbox);
+
     // Giả lập nhân viên có quyền bán hàng.
     controller.actor = const Actor('employee-001', Role.owner);
 
@@ -171,5 +174,47 @@ void main() {
     expect(controller.cart, hasLength(1));
     expect(controller.requestId, 'request-offline-001');
     expect(controller.busy, isFalse);
+  });
+
+  test('Chặn checkout online nếu đơn đã có trong Outbox', () async {
+    final id = controller.requestId;
+
+    await controller.queueOfflineCheckout(
+      outbox: outbox,
+      customerId: 'KH001',
+      paid: 1000000,
+      ship: 150000,
+    );
+
+    await expectLater(
+      controller.checkout(customerId: 'KH001', paid: 1000000, ship: 150000),
+      throwsStateError,
+    );
+
+    expect(controller.cart, hasLength(1));
+    expect(controller.requestId, id);
+    expect(controller.busy, isFalse);
+
+    final operation = await outbox.getById(id);
+    expect(operation, isNotNull);
+    expect(operation!.status, 'pending');
+  });
+
+  test('Checkout online vẫn hoạt động nếu Outbox chưa có đơn', () async {
+    final id = controller.requestId;
+
+    expect(await outbox.getById(id), isNull);
+
+    final order = await controller.checkout(
+      customerId: 'KH001',
+      paid: 1000000,
+      ship: 150000,
+    );
+
+    expect(order['requestId'], id);
+    expect(controller.cart, isEmpty);
+    expect(controller.requestId, isNot(id));
+    expect(controller.busy, isFalse);
+    expect(await outbox.getById(id), isNull);
   });
 }

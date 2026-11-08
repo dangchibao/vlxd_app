@@ -81,6 +81,7 @@ Future<void> main() async {
 
       // Hàng đợi thao tác offline.
       final outbox = Get.put(OutboxRepository(localDb), permanent: true);
+      shop.attachCheckoutOutbox(outbox);
 
       // Xác minh hóa đơn với Firebase.
       final verifier = FirebaseRequestVerifier(firestore);
