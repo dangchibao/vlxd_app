@@ -185,4 +185,59 @@ void main() {
     expect(tester.takeException(), isNull);
     await closePage(tester);
   });
+
+  testWidgets('Tìm đơn bằng mã và tên khách hàng', (tester) async {
+    await addOrder(id: 'offline-page-search-001');
+    await addOrder(id: 'offline-page-other-002', actorId: 'other-employee');
+    await openPage(tester);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('offline-order-search')),
+      'khong-co-don-nay',
+    );
+    await tester.pump();
+    expect(find.text('Không tìm thấy đơn phù hợp.'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('offline-order-search')),
+      'Anh Minh',
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('offline-order-offline-page-search-001')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('offline-order-offline-page-other-002')),
+      findsNothing,
+    );
+    await closePage(tester);
+  });
+
+  testWidgets('Lọc theo trạng thái không thay đổi SQLite', (tester) async {
+    await addOrder(id: 'offline-filter-pending');
+    await addOrder(id: 'offline-filter-failed');
+    await outbox.markFailed('offline-filter-failed', 'Cần xác minh');
+    await openPage(tester);
+
+    await tester.tap(find.byKey(const ValueKey('offline-filter-failed')));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('offline-order-offline-filter-failed')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('offline-order-offline-filter-pending')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('offline-filter-all')));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('offline-order-offline-filter-pending')),
+      findsOneWidget,
+    );
+    expect((await outbox.getById('offline-filter-failed'))!.status, 'failed');
+    await closePage(tester);
+  });
 }

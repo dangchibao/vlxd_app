@@ -18,6 +18,8 @@ class OfflineOrdersPage extends StatefulWidget {
 
 class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
   late Stream<List<PendingOperation>> _operations;
+  String _searchText = '';
+  String _statusFilter = 'all';
 
   @override
   void initState() {
@@ -239,6 +241,25 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
         final syncedCount = items
             .where((item) => item.status == 'synced')
             .length;
+        final search = _searchText.trim().toLowerCase();
+        final filtered = items.where((operation) {
+          if (_statusFilter != 'all' && operation.status != _statusFilter) {
+            return false;
+          }
+          if (search.isEmpty) return true;
+          final command = OfflineCheckoutCommand.decode(operation.payloadJson);
+          final searchable = <String>[
+            operation.id,
+            _shortReference(operation.id),
+            command.customerId,
+            _customerName(command.customerId),
+            for (final line in command.lines) ...[
+              line.productId,
+              _productName(line.productId),
+            ],
+          ].join(' ').toLowerCase();
+          return searchable.contains(search);
+        }).toList();
         return Column(
           children: [
             Padding(
@@ -249,6 +270,42 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
                   const Text(
                     'Danh sách tự cập nhật khi trạng thái trên máy thay đổi.',
                     style: TextStyle(color: Color(0xFF526780), fontSize: 13),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    key: const ValueKey('offline-order-search'),
+                    decoration: const InputDecoration(
+                      labelText: 'Tìm đơn offline',
+                      hintText: 'Mã đơn, tên khách hoặc sản phẩm',
+                      prefixIcon: Icon(Icons.search),
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) => setState(() => _searchText = value),
+                  ),
+                  const SizedBox(height: 8),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final filter in const <(String, String)>[
+                          ('all', 'Tất cả'),
+                          ('pending', 'Chờ đồng bộ'),
+                          ('syncing', 'Đang xử lý'),
+                          ('failed', 'Cần kiểm tra'),
+                          ('synced', 'Đã xác nhận'),
+                        ])
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                              key: ValueKey('offline-filter-${filter.$1}'),
+                              label: Text(filter.$2),
+                              selected: _statusFilter == filter.$1,
+                              onSelected: (_) =>
+                                  setState(() => _statusFilter = filter.$1),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Wrap(
@@ -281,37 +338,39 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
               ),
             ),
             Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: items.length,
-                itemBuilder: (context, index) {
-                  final operation = items[index];
-                  final command = OfflineCheckoutCommand.decode(
-                    operation.payloadJson,
-                  );
-                  return Card(
-                    child: ListTile(
-                      key: ValueKey('offline-order-${operation.id}'),
-                      title: Text(
-                        'Mã tham chiếu ${_shortReference(operation.id)}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text(
-                        '${_date(operation.createdAt)} · Khách ${_customerName(command.customerId)}\n'
-                        '${command.lines.length} mặt hàng · ${_statusText(operation.status)}',
-                      ),
-                      isThreeLine: true,
-                      trailing: Icon(
-                        Icons.circle,
-                        size: 15,
-                        color: _statusColor(operation.status),
-                      ),
-                      onTap: () => _showDetails(operation),
+              child: filtered.isEmpty
+                  ? const Center(child: Text('Không tìm thấy đơn phù hợp.'))
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: filtered.length,
+                      itemBuilder: (context, index) {
+                        final operation = filtered[index];
+                        final command = OfflineCheckoutCommand.decode(
+                          operation.payloadJson,
+                        );
+                        return Card(
+                          child: ListTile(
+                            key: ValueKey('offline-order-${operation.id}'),
+                            title: Text(
+                              'Mã tham chiếu ${_shortReference(operation.id)}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              '${_date(operation.createdAt)} · Khách ${_customerName(command.customerId)}\n'
+                              '${command.lines.length} mặt hàng · ${_statusText(operation.status)}',
+                            ),
+                            isThreeLine: true,
+                            trailing: Icon(
+                              Icons.circle,
+                              size: 15,
+                              color: _statusColor(operation.status),
+                            ),
+                            onTap: () => _showDetails(operation),
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
             ),
           ],
         );
