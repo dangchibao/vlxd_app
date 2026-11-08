@@ -639,7 +639,9 @@ class _CartPanelState extends State<CartPanel> {
             snapshot.connectionState != ConnectionState.done ||
             snapshot.hasError ||
             snapshot.data != null;
-        return _buildCartBody(context, c, locked);
+        // Controller may have locked the request while the cached DB read
+        // still says null. Never enable editing during that interval.
+        return _buildCartBody(context, c, locked || c.cartEditingLocked);
       },
     );
   }
@@ -944,6 +946,66 @@ class _CartPanelState extends State<CartPanel> {
                           : 'Chốt đơn mẫu',
                     ),
                   ),
+                  if (c.isLive) ...[
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      key: const ValueKey('save-offline-checkout'),
+                      onPressed: blocked
+                          ? null
+                          : () => attempt(() async {
+                              if (!Get.isRegistered<OutboxRepository>()) {
+                                throw StateError(
+                                  'Chưa kết nối Outbox. Không thể lưu đơn offline.',
+                                );
+                              }
+                              if (customerId.trim().isEmpty) {
+                                throw ArgumentError(
+                                  'Chọn khách hàng trước khi lưu đơn offline.',
+                                );
+                              }
+                              final shippingAmount = whole(shipping.text);
+                              final amount = paid.text.trim().isEmpty
+                                  ? c.subtotal + shippingAmount
+                                  : whole(paid.text);
+                              if (shippingAmount < 0 || amount < 0) {
+                                throw ArgumentError(
+                                  'Tiền thanh toán và phí giao hàng không được âm.',
+                                );
+                              }
+
+                              final accepted = await confirm(
+                                context,
+                                'Lưu đơn offline trên máy?',
+                                'Đơn sẽ chỉ được lưu vào SQLite trên thiết bị này. '
+                                    'Chưa tạo hóa đơn Firebase, chưa trừ tồn kho trên server '
+                                    'và chưa tự động đồng bộ.\n'
+                                    'Tổng ${money(c.subtotal + shippingAmount)}\n'
+                                    'Tiền ghi nhận ${money(amount)}',
+                              );
+                              if (!accepted || !context.mounted) return;
+
+                              // This controller method atomically guards cart
+                              // edits while the Outbox write is in progress.
+                              // Never call SyncRuntime.drain() from this UI.
+                              await c.queueOfflineCheckout(
+                                outbox: Get.find<OutboxRepository>(),
+                                customerId: customerId,
+                                paid: amount,
+                                ship: shippingAmount,
+                                hold: hold,
+                                negativeReason: reason.text.trim(),
+                              );
+                              if (mounted) _refreshOutboxStatus(c);
+                            }),
+                      icon: const Icon(Icons.save_outlined),
+                      label: const Text('Lưu đơn offline'),
+                    ),
+                    const SizedBox(height: 6),
+                    hint(
+                      'Chỉ lưu trên thiết bị này • Chưa phải hóa đơn đã chốt. '
+                      'Cần kiểm tra và đồng bộ sau.',
+                    ),
+                  ],
                 ],
               );
             },
