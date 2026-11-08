@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 
@@ -148,6 +149,26 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
                 SelectableText('Request ID (kỹ thuật): ${operation.id}'),
                 const SizedBox(height: 8),
                 Text('Trạng thái: ${_statusText(operation.status)}'),
+                if (operation.status == 'failed') ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF2E8),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'CẦN KIỂM TRA: Không tự tạo lại đơn. Quản lý cần đối chiếu '
+                      'Request ID trên Firebase và xác minh hóa đơn, tồn kho '
+                      'trước khi quyết định xử lý.',
+                      style: TextStyle(
+                        color: Color(0xFF8A3B00),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+                Text('Số lần thử đồng bộ: ${operation.attempts}'),
                 Text('Lưu lúc: ${_date(operation.createdAt)}'),
                 Text('Khách hàng: ${_customerName(command.customerId)}'),
                 Text('Mã khách hàng: ${command.customerId}'),
@@ -189,6 +210,18 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
           ),
         ),
         actions: [
+          TextButton.icon(
+            key: const ValueKey('copy-offline-request-id'),
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: operation.id));
+              if (!ctx.mounted) return;
+              ScaffoldMessenger.maybeOf(ctx)?.showSnackBar(
+                const SnackBar(content: Text('Đã sao chép mã giao dịch')),
+              );
+            },
+            icon: const Icon(Icons.copy_outlined),
+            label: const Text('Sao chép mã giao dịch'),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Đóng'),

@@ -131,6 +131,32 @@ void main() {
     await closePage(tester);
   });
 
+  testWidgets('Đơn lỗi hiện hướng dẫn xác minh và sao chép request ID', (
+    tester,
+  ) async {
+    await addOrder(id: 'offline-review-123');
+    await outbox.markFailed('offline-review-123', 'Không rõ kết quả gửi');
+    final before = (await outbox.getById('offline-review-123'))!;
+    await openPage(tester);
+    await tester.tap(
+      find.byKey(const ValueKey('offline-order-offline-review-123')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('CẦN KIỂM TRA'), findsOneWidget);
+    expect(find.textContaining('Số lần thử đồng bộ:'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('copy-offline-request-id')),
+      findsOneWidget,
+    );
+
+    final after = (await outbox.getById('offline-review-123'))!;
+    expect(after.status, before.status);
+    expect(after.attempts, before.attempts);
+    expect(after.lastError, before.lastError);
+    await closePage(tester);
+  });
+
   testWidgets('Mở lại trang đọc lại Outbox, chỉ thấy đơn của actor', (
     tester,
   ) async {
