@@ -64,39 +64,56 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(
-      const GetMaterialApp(home: OfflineOrdersPage()),
-    );
+    await tester.pumpWidget(const GetMaterialApp(home: OfflineOrdersPage()));
     await tester.pumpAndSettle();
+  }
+
+  // Drift schedules a zero-delay timer when its watched query is cancelled.
+  // Unmount the StreamBuilder and flush that timer inside fakeAsync before
+  // Flutter's test binding checks for pending timers.
+  Future<void> closePage(WidgetTester tester) async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
   }
 
   testWidgets('Hiển thị pending và xem chi tiết từ SQLite', (tester) async {
     await addOrder(id: 'offline-page-001');
     await openPage(tester);
 
-    expect(find.byKey(const ValueKey('offline-order-offline-page-001')),
-        findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('offline-order-offline-page-001')),
+      findsOneWidget,
+    );
     expect(find.textContaining('Chờ đồng bộ'), findsWidgets);
 
-    await tester.tap(find.byKey(
-      const ValueKey('offline-order-offline-page-001'),
-    ));
+    await tester.tap(
+      find.byKey(const ValueKey('offline-order-offline-page-001')),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Chi tiết đơn offline'), findsOneWidget);
-    expect(find.text('Khách hàng: Anh Minh • Công trình Gò Dầu'), findsOneWidget);
+    expect(
+      find.text('Khách hàng: Anh Minh • Công trình Gò Dầu'),
+      findsOneWidget,
+    );
     expect(find.text('Mã khách hàng: KH001'), findsOneWidget);
-    expect(find.text('Nhân viên: Chưa có tên nhân viên đã lưu'), findsOneWidget);
+    expect(
+      find.text('Nhân viên: Chưa có tên nhân viên đã lưu'),
+      findsOneWidget,
+    );
     expect(find.text('Tiền đã thu: 100.000 đ'), findsOneWidget);
     expect(find.text('Phí giao hàng: 20.000 đ'), findsOneWidget);
     expect(find.textContaining('Mã sản phẩm: PR6060VD'), findsOneWidget);
     expect(find.textContaining('Giao buổi sáng'), findsOneWidget);
     expect((await outbox.getById('offline-page-001'))!.status, 'pending');
     expect(tester.takeException(), isNull);
+    await closePage(tester);
   });
 
-  testWidgets('Hiển thị failed nhưng không tự gửi hay đổi trạng thái',
-      (tester) async {
+  testWidgets('Hiển thị failed nhưng không tự gửi hay đổi trạng thái', (
+    tester,
+  ) async {
     await addOrder(id: 'offline-page-failed');
     await outbox.markFailed('offline-page-failed', 'Cần đối chiếu server');
     final before = (await outbox.getById('offline-page-failed'))!;
@@ -111,32 +128,61 @@ void main() {
     expect(after.attempts, before.attempts);
     expect(after.lastError, before.lastError);
     expect(tester.takeException(), isNull);
+    await closePage(tester);
   });
 
-  testWidgets('Mở lại trang đọc lại Outbox, chỉ thấy đơn của actor',
-      (tester) async {
+  testWidgets('Mở lại trang đọc lại Outbox, chỉ thấy đơn của actor', (
+    tester,
+  ) async {
     await addOrder(id: 'offline-page-mine');
     await addOrder(id: 'offline-page-other', actorId: 'other-employee');
     await openPage(tester);
 
-    expect(find.byKey(const ValueKey('offline-order-offline-page-mine')),
-        findsOneWidget);
-    expect(find.byKey(const ValueKey('offline-order-offline-page-other')),
-        findsNothing);
+    expect(
+      find.byKey(const ValueKey('offline-order-offline-page-mine')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('offline-order-offline-page-other')),
+      findsNothing,
+    );
 
     // Gỡ trang để hủy State/Future, nhưng giữ nguyên SQLite và GetX.
     await tester.pumpWidget(const GetMaterialApp(home: SizedBox.shrink()));
     await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 1));
 
     await outbox.markSynced('offline-page-mine');
     await tester.pumpWidget(const GetMaterialApp(home: OfflineOrdersPage()));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('offline-order-offline-page-mine')),
-        findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('offline-order-offline-page-mine')),
+      findsOneWidget,
+    );
     expect(find.textContaining('Server đã xác nhận'), findsWidgets);
-    expect(find.byKey(const ValueKey('offline-order-offline-page-other')),
-        findsNothing);
+    expect(
+      find.byKey(const ValueKey('offline-order-offline-page-other')),
+      findsNothing,
+    );
     expect(tester.takeException(), isNull);
+    await closePage(tester);
+  });
+  testWidgets('Tự cập nhật khi SQLite chuyển trạng thái không cần làm mới', (
+    tester,
+  ) async {
+    await addOrder(id: 'offline-page-live-refresh');
+    await openPage(tester);
+    expect(find.textContaining('Chờ đồng bộ'), findsWidgets);
+    expect(find.text('Chờ: 1'), findsOneWidget);
+
+    await outbox.markSynced('offline-page-live-refresh');
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Server đã xác nhận'), findsWidgets);
+    expect(find.text('Chờ: 0'), findsOneWidget);
+    expect(find.text('Đã xác nhận: 1'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await closePage(tester);
   });
 }

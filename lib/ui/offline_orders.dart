@@ -17,7 +17,7 @@ class OfflineOrdersPage extends StatefulWidget {
 }
 
 class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
-  late Future<List<PendingOperation>> _operations;
+  late Stream<List<PendingOperation>> _operations;
 
   @override
   void initState() {
@@ -26,10 +26,10 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
   }
 
   void _reload() {
-    _operations = _readOperations();
+    _operations = _watchOperations();
   }
 
-  Future<List<PendingOperation>> _readOperations() async {
+  Stream<List<PendingOperation>> _watchOperations() {
     if (!Get.isRegistered<OutboxRepository>()) {
       throw StateError('Outbox chưa được khởi tạo trên thiết bị này.');
     }
@@ -42,25 +42,27 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
     }
 
     final outbox = Get.find<OutboxRepository>();
-    final all = await outbox.db.select(outbox.db.pendingOperations).get();
-    final visible = <PendingOperation>[];
-    for (final operation in all) {
-      if (operation.operationType != 'checkout.v1') continue;
-      try {
-        final command = OfflineCheckoutCommand.decode(operation.payloadJson);
-        if (command.requestId == operation.id && command.actorId == actor.id) {
-          visible.add(operation);
+    return outbox.db.select(outbox.db.pendingOperations).watch().map((all) {
+      final visible = <PendingOperation>[];
+      for (final operation in all) {
+        if (operation.operationType != 'checkout.v1') continue;
+        try {
+          final command = OfflineCheckoutCommand.decode(operation.payloadJson);
+          if (command.requestId == operation.id &&
+              command.actorId == actor.id) {
+            visible.add(operation);
+          }
+        } catch (_) {
+          // Dữ liệu không đọc được phải được kiểm tra bởi người quản trị;
+          // không hiển thị nội dung lỗi có thể thuộc về tài khoản khác.
         }
-      } catch (_) {
-        // Dữ liệu không đọc được phải được kiểm tra bởi người quản trị;
-        // không hiển thị nội dung lỗi có thể thuộc về tài khoản khác.
       }
-    }
-    visible.sort((a, b) {
-      final byDate = b.createdAt.compareTo(a.createdAt);
-      return byDate != 0 ? byDate : b.id.compareTo(a.id);
+      visible.sort((a, b) {
+        final byDate = b.createdAt.compareTo(a.createdAt);
+        return byDate != 0 ? byDate : b.id.compareTo(a.id);
+      });
+      return visible;
     });
-    return visible;
   }
 
   // Tên chỉ được tra từ dữ liệu hiện có trên máy, không gọi Firebase.
@@ -206,10 +208,12 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
         ),
       ],
     ),
-    body: FutureBuilder<List<PendingOperation>>(
-      future: _operations,
+    body: StreamBuilder<List<PendingOperation>>(
+      stream: _operations,
       builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData &&
+            !snapshot.hasError) {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
@@ -226,35 +230,90 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
             child: Text('Chưa có đơn offline của tài khoản này trên thiết bị.'),
           );
         }
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: items.length,
-          itemBuilder: (context, index) {
-            final operation = items[index];
-            final command = OfflineCheckoutCommand.decode(
-              operation.payloadJson,
-            );
-            return Card(
-              child: ListTile(
-                key: ValueKey('offline-order-${operation.id}'),
-                title: Text(
-                  'Mã tham chiếu ${_shortReference(operation.id)}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text(
-                  '${_date(operation.createdAt)} · Khách ${_customerName(command.customerId)}\n'
-                  '${command.lines.length} mặt hàng · ${_statusText(operation.status)}',
-                ),
-                isThreeLine: true,
-                trailing: Icon(
-                  Icons.chevron_right,
-                  color: _statusColor(operation.status),
-                ),
-                onTap: () => _showDetails(operation),
+        final pendingCount = items
+            .where((item) => item.status == 'pending')
+            .length;
+        final needsReviewCount = items
+            .where((item) => item.status == 'failed')
+            .length;
+        final syncedCount = items
+            .where((item) => item.status == 'synced')
+            .length;
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Danh sách tự cập nhật khi trạng thái trên máy thay đổi.',
+                    style: TextStyle(color: Color(0xFF526780), fontSize: 13),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      Chip(
+                        label: Text('Chờ: $pendingCount'),
+                        backgroundColor: const Color(0xFFFFF2D8),
+                      ),
+                      Chip(
+                        label: Text('Cần kiểm tra: $needsReviewCount'),
+                        backgroundColor: const Color(0xFFFFE5E3),
+                      ),
+                      Chip(
+                        label: Text('Đã xác nhận: $syncedCount'),
+                        backgroundColor: const Color(0xFFE4F5EC),
+                      ),
+                    ],
+                  ),
+                  if (needsReviewCount > 0)
+                    const Text(
+                      'Đơn cần kiểm tra không tự gửi lại. Hãy đối chiếu Firebase trước khi xử lý.',
+                      style: TextStyle(
+                        color: Color(0xFFB3261E),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                ],
               ),
-            );
-          },
+            ),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: items.length,
+                itemBuilder: (context, index) {
+                  final operation = items[index];
+                  final command = OfflineCheckoutCommand.decode(
+                    operation.payloadJson,
+                  );
+                  return Card(
+                    child: ListTile(
+                      key: ValueKey('offline-order-${operation.id}'),
+                      title: Text(
+                        'Mã tham chiếu ${_shortReference(operation.id)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        '${_date(operation.createdAt)} · Khách ${_customerName(command.customerId)}\n'
+                        '${command.lines.length} mặt hàng · ${_statusText(operation.status)}',
+                      ),
+                      isThreeLine: true,
+                      trailing: Icon(
+                        Icons.circle,
+                        size: 15,
+                        color: _statusColor(operation.status),
+                      ),
+                      onTap: () => _showDetails(operation),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         );
       },
     ),
