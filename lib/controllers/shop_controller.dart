@@ -418,6 +418,79 @@ class ShopController extends GetxController {
   }
 
   // ============================================================
+  // START A FRESH CART AFTER THE PREVIOUS ORDER WAS SAVED
+  // ============================================================
+
+  /// Tạo giỏ hàng mới CHỈ khi đơn trước đã tồn tại trong SQLite Outbox.
+  /// Không đồng bộ, không xóa/sửa bản ghi Outbox và không đánh dấu đã bán.
+  ///
+  /// Đọc và kiểm tra bản ghi trước khi bỏ giỏ cũ. Nếu việc đọc thất bại,
+  /// giỏ hiện tại vẫn khóa để tránh mất thông tin giao dịch.
+  Future<void> startNewCartAfterOfflineSave({
+    required OutboxRepository outbox,
+  }) async {
+    if (!isLive || actor == null) {
+      throw StateError('Cần đăng nhập tài khoản cửa hàng để tạo đơn mới.');
+    }
+    if (busy || _checkoutGuardRunning) {
+      throw StateError('Đang xử lý giao dịch. Chưa thể tạo đơn mới.');
+    }
+    if (!_cartWriteLocked || cart.isEmpty) {
+      throw StateError('Giỏ hiện tại chưa có đơn offline được lưu.');
+    }
+
+    final oldRequestId = requestId;
+    final oldActorId = actor!.id;
+    final generation = _session;
+    _checkoutGuardRunning = true;
+    busy = true;
+    update();
+    try {
+      final saved = await outbox.getById(oldRequestId);
+      if (saved == null || saved.operationType != 'checkout.v1') {
+        throw StateError(
+          'Không tìm thấy đơn đã lưu trong SQLite. Giỏ vẫn được khóa.',
+        );
+      }
+      final OfflineCheckoutCommand command;
+      try {
+        command = OfflineCheckoutCommand.decode(saved.payloadJson);
+      } catch (_) {
+        throw StateError('Đơn đã lưu không đọc được. Giỏ vẫn được khóa.');
+      }
+      if (command.requestId != oldRequestId ||
+          command.actorId != oldActorId ||
+          command.lines.length != cart.length ||
+          generation != _session ||
+          actor?.id != oldActorId ||
+          requestId != oldRequestId) {
+        throw StateError('Đơn đã lưu không khớp phiên hoặc giỏ hàng hiện tại.');
+      }
+      for (var i = 0; i < cart.length; i++) {
+        final savedLine = command.lines[i];
+        final currentLine = cart[i];
+        if (savedLine.productId != currentLine.productId ||
+            savedLine.area != currentLine.area ||
+            savedLine.note != currentLine.note) {
+          throw StateError(
+            'Sản phẩm trong giỏ khác đơn đã lưu. Giỏ vẫn được khóa.',
+          );
+        }
+      }
+
+      // Khi đã xác nhận bản ghi gốc, chỉ xóa giỏ trong bộ nhớ.
+      // Đơn cũ vẫn tồn tại trong Outbox với requestId cũ để đồng bộ sau.
+      _clearCartInternally();
+      _requestId = const Uuid().v4();
+      _cartWriteLocked = false;
+    } finally {
+      _checkoutGuardRunning = false;
+      busy = false;
+      update();
+    }
+  }
+
+  // ============================================================
   // ONLINE CHECKOUT - KEEP EXISTING BEHAVIOR
   // ============================================================
 

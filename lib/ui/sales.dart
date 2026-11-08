@@ -63,6 +63,7 @@ class SalesPage extends StatelessWidget {
                       OutlinedButton.icon(
                         onPressed: () => Navigator.push(
                           context,
+
                           MaterialPageRoute<void>(
                             builder: (_) => const OrdersPage(),
                           ),
@@ -927,6 +928,44 @@ class _CartPanelState extends State<CartPanel> {
                         ],
                       ),
                     ),
+                  ],
+                  if (alreadyQueued && !checking && !checkFailed) ...[
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      key: const ValueKey('new-cart-after-offline-save'),
+                      onPressed: c.busy
+                          ? null
+                          : () => attempt(() async {
+                              final accepted = await confirm(
+                                context,
+                                'Tạo đơn mới?',
+                                'Đơn offline trước đã lưu trên máy và vẫn nằm '
+                                    'trong danh sách Đơn chờ đồng bộ. '
+                                    'Tạo giỏ mới không có nghĩa là đơn cũ '
+                                    'đã được Firebase xác nhận.\n'
+                                    'Giỏ hiện tại sẽ được làm trống để bán '
+                                    'cho khách tiếp theo.',
+                              );
+                              if (!accepted || !context.mounted) return;
+                              await c.startNewCartAfterOfflineSave(
+                                outbox: Get.find<OutboxRepository>(),
+                              );
+                              if (!mounted) return;
+                              paid.clear();
+                              shipping.text = '0';
+                              reason.clear();
+                              setState(() {
+                                customerId = '';
+                                hold = false;
+                                _checkedRequestId = null;
+                                _outboxStatusFuture = null;
+                              });
+                            }),
+                      icon: const Icon(Icons.add_shopping_cart_outlined),
+                      label: const Text('Tạo đơn mới'),
+                    ),
+                    const SizedBox(height: 6),
+                    hint('Đơn cũ vẫn ở SQLite và tiếp tục chờ đồng bộ.'),
                   ],
                   FilledButton.icon(
                     onPressed: blocked
