@@ -133,6 +133,36 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
         '${two(local.hour)}:${two(local.minute)}';
   }
 
+  // Phiếu đối chiếu là bản ghi chẩn đoán, không phải hóa đơn hay lệnh gửi lại.
+  // Chỉ chứa mã kỹ thuật và thông tin của giao dịch để quản lý đối chiếu.
+  String _reviewReport(
+    PendingOperation operation,
+    OfflineCheckoutCommand command,
+  ) {
+    final lines = <String>[
+      'VLXD BAY HAI - PHIEU DOI CHIEU DON OFFLINE',
+      'KHONG PHAI HOA DON - KHONG TU GUI LAI',
+      'Ma tham chieu: ${_shortReference(operation.id)}',
+      'Request ID: ${operation.id}',
+      'Trang thai tren may: ${_statusText(operation.status)}',
+      'So lan thu: ${operation.attempts}',
+      'Thoi diem luu: ${_date(operation.createdAt)}',
+      'Ma khach hang: ${command.customerId}',
+      'UID nhan vien: ${command.actorId}',
+      'Da thu: ${_money(command.paid)}',
+      'Phi giao hang: ${_money(command.ship)}',
+      'Giu hang: ${command.hold ? 'Co' : 'Khong'}',
+      'San pham:',
+      for (final line in command.lines)
+        '- ${line.productId} | so luong quy doi ${line.area} | '
+            'don gia ${_money(line.quotedPrice)} | he so ${line.quotedRatio}',
+      if (operation.lastError != null && operation.lastError!.isNotEmpty)
+        'Loi dong bo: ${operation.lastError}',
+      'DOI CHIEU REQUEST ID VA TON KHO TREN FIREBASE TRUOC KHI XU LY.',
+    ];
+    return lines.join('\n');
+  }
+
   void _showDetails(PendingOperation operation) {
     final command = OfflineCheckoutCommand.decode(operation.payloadJson);
     var verifying = false;
@@ -298,6 +328,30 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
                       )
                     : const Icon(Icons.cloud_done_outlined),
                 label: const Text('Kiểm tra trên Firebase'),
+              ),
+            if (operation.status == 'failed')
+              TextButton.icon(
+                key: const ValueKey('copy-offline-review-report'),
+                onPressed: verifying
+                    ? null
+                    : () async {
+                        // Không sửa Outbox hay gọi mạng. Chỉ sao chép dữ liệu.
+                        await Clipboard.setData(
+                          ClipboardData(
+                            text: _reviewReport(operation, command),
+                          ),
+                        );
+                        if (!ctx.mounted) return;
+                        ScaffoldMessenger.maybeOf(ctx)?.showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Đã sao chép phiếu đối chiếu cho quản lý',
+                            ),
+                          ),
+                        );
+                      },
+                icon: const Icon(Icons.assignment_outlined),
+                label: const Text('Sao chép phiếu đối chiếu'),
               ),
             TextButton.icon(
               key: const ValueKey('copy-offline-request-id'),

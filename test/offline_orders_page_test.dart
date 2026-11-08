@@ -327,6 +327,29 @@ void main() {
     await closePage(tester);
   });
 
+  testWidgets('Đơn cần xác minh có phiếu đối chiếu, không đổi dữ liệu', (
+    tester,
+  ) async {
+    const id = 'handoff-report-001';
+    await addOrder(id: id);
+    await outbox.markFailed(id, 'Cần xác minh phía server');
+    final before = (await outbox.getById(id))!;
+    await openPage(tester);
+    await tester.tap(find.byKey(const ValueKey('offline-order-$id')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('copy-offline-review-report')),
+      findsOneWidget,
+    );
+    expect(find.text('Sao chép phiếu đối chiếu'), findsOneWidget);
+    final after = (await outbox.getById(id))!;
+    expect(after.status, before.status);
+    expect(after.attempts, before.attempts);
+    expect(after.payloadJson, before.payloadJson);
+    await closePage(tester);
+  });
+
   testWidgets('Firebase chưa rõ kết quả vẫn giữ failed, không retry', (
     tester,
   ) async {
