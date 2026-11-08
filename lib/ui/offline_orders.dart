@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:intl/intl.dart';
 
 import '../controllers/shop_controller.dart';
 import '../data/local/app_database.dart';
@@ -62,6 +63,47 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
     return visible;
   }
 
+  // Tên chỉ được tra từ dữ liệu hiện có trên máy, không gọi Firebase.
+  // Các đơn cũ chưa lưu snapshot tên nên tên hiện tại có thể khác lúc bán.
+  String _customerName(String id) {
+    final customers = Get.find<ShopController>().data.customers;
+    for (final customer in customers) {
+      if (customer['id'] == id) {
+        final name = (customer['name'] as String? ?? '').trim();
+        if (name.isNotEmpty) return name;
+      }
+    }
+    return 'Chưa có tên khách hàng';
+  }
+
+  String _staffName(String id) {
+    final actor = Get.find<ShopController>().actor;
+    if (actor != null && actor.id == id) {
+      final name = actor.displayName?.trim() ?? '';
+      if (name.isNotEmpty) return name;
+    }
+    return 'Chưa có tên nhân viên đã lưu';
+  }
+
+  String _productName(String id) {
+    final products = Get.find<ShopController>().data.products;
+    for (final product in products) {
+      if (product.id == id) {
+        return '${product.name} ${product.size}'.trim();
+      }
+    }
+    return 'Sản phẩm không còn trong danh mục';
+  }
+
+  // Chỉ là mã tham chiếu dễ nhìn, KHÔNG thay thế requestId duy nhất.
+  String _shortReference(String id) {
+    final fragment = id.replaceAll('-', '').toUpperCase();
+    return 'OFF-${fragment.length > 8 ? fragment.substring(0, 8) : fragment}';
+  }
+
+  String _money(num amount) =>
+      '${NumberFormat.decimalPattern('vi_VN').format(amount)} đ';
+
   String _statusText(String status) => switch (status) {
     'pending' => 'Chờ đồng bộ',
     'syncing' => 'Đang xử lý',
@@ -98,14 +140,17 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                SelectableText('Mã giao dịch: ${operation.id}'),
+                Text('Mã tham chiếu: ${_shortReference(operation.id)}'),
+                SelectableText('Request ID (kỹ thuật): ${operation.id}'),
                 const SizedBox(height: 8),
                 Text('Trạng thái: ${_statusText(operation.status)}'),
                 Text('Lưu lúc: ${_date(operation.createdAt)}'),
-                Text('Khách hàng: ${command.customerId}'),
-                Text('Nhân viên: ${command.actorId}'),
-                Text('Tiền đã thu (đ): ${command.paid}'),
-                Text('Phí giao hàng (đ): ${command.ship}'),
+                Text('Khách hàng: ${_customerName(command.customerId)}'),
+                Text('Mã khách hàng: ${command.customerId}'),
+                Text('Nhân viên: ${_staffName(command.actorId)}'),
+                Text('UID nhân viên: ${command.actorId}'),
+                Text('Tiền đã thu: ${_money(command.paid)}'),
+                Text('Phí giao hàng: ${_money(command.ship)}'),
                 Text('Giữ hàng / đặt cọc: ${command.hold ? 'Có' : 'Không'}'),
                 if (command.negativeReason.isNotEmpty)
                   Text('Lý do bán âm: ${command.negativeReason}'),
@@ -120,10 +165,11 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
                 for (final line in command.lines)
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text(line.productId),
+                    title: Text(_productName(line.productId)),
                     subtitle: Text(
+                      'Mã sản phẩm: ${line.productId}\n'
                       'Số lượng quy đổi: ${line.area}\n'
-                      'Đơn giá: ${line.quotedPrice} đ / đơn vị\n'
+                      'Đơn giá khi lưu: ${_money(line.quotedPrice)} / đơn vị\n'
                       'Hệ số quy đổi: ${line.quotedRatio}'
                       '${line.note.isEmpty ? '' : '\nGhi chú: ${line.note}'}',
                     ),
@@ -192,12 +238,12 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
               child: ListTile(
                 key: ValueKey('offline-order-${operation.id}'),
                 title: Text(
-                  operation.id,
+                  'Mã tham chiếu ${_shortReference(operation.id)}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 subtitle: Text(
-                  '${_date(operation.createdAt)} · Khách ${command.customerId}\n'
+                  '${_date(operation.createdAt)} · Khách ${_customerName(command.customerId)}\n'
                   '${command.lines.length} mặt hàng · ${_statusText(operation.status)}',
                 ),
                 isThreeLine: true,
