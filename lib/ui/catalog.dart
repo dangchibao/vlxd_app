@@ -43,6 +43,63 @@ class ProductPicture extends StatelessWidget {
   );
 }
 
+/// Giá vốn đã ghi trong lô có ngày nhập mới nhất.
+/// KHÔNG coi đây là giá nhập hóa đơn hay giá vốn bình quân gia quyền.
+/// Không có lô hợp lệ => trả về null, không tự điền giá 0.
+int? latestRecordedLotCost(Product product) {
+  DateTime? newestDate;
+  int? newestCost;
+  for (final lot in product.lots) {
+    final date = DateTime.tryParse(lot['date']?.toString() ?? '');
+    final rawCost = lot['cost'];
+    if (date == null || rawCost is! num || !rawCost.isFinite || rawCost <= 0) {
+      continue;
+    }
+    if (newestDate == null || date.isAfter(newestDate)) {
+      newestDate = date;
+      newestCost = rawCost.round();
+    }
+  }
+  return newestCost;
+}
+
+/// Nhãn màu vàng phân biệt giá vốn ghi theo lô và giá bán thực tế.
+/// Chỉ dùng cho nhân viên trong app, không đưa lên hóa đơn khách hàng.
+Widget productLotCostBadge(Product product) {
+  final cost = latestRecordedLotCost(product);
+  return Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFFF2D6),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'GIÁ VỐN LÔ GẦN NHẤT',
+          style: TextStyle(
+            color: Color(0xFF805500),
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        Text(
+          cost == null ? 'Chưa có dữ liệu' : '${money(cost)} / ${product.unit}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Color(0xFF493000),
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class ProductsPage extends StatelessWidget {
   const ProductsPage({super.key});
   @override
@@ -127,12 +184,23 @@ class ProductsPage extends StatelessWidget {
                                 ),
                               ),
                               hint('${p.code} • ${p.size} • ${p.supplier}'),
-                              const SizedBox(height: 6),
+                              const SizedBox(height: 8),
+                              productLotCostBadge(p),
+                              const SizedBox(height: 8),
+                              const Text(
+                                'GIÁ BÁN',
+                                style: TextStyle(
+                                  color: blue,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
                               Text(
                                 '${money(p.price)} / ${p.unit}',
                                 style: const TextStyle(
                                   color: blue,
-                                  fontWeight: FontWeight.bold,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w800,
                                 ),
                               ),
                               hint(

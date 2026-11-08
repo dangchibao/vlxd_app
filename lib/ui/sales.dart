@@ -85,7 +85,7 @@ class SalesPage extends StatelessWidget {
                         : grid.maxWidth > 450
                         ? 2
                         : 1,
-                    mainAxisExtent: 310,
+                    mainAxisExtent: 375,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,
                   ),
@@ -108,10 +108,22 @@ class SalesPage extends StatelessWidget {
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
+                            const SizedBox(height: 6),
+                            productLotCostBadge(p),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'GIÁ BÁN',
+                              style: TextStyle(
+                                color: blue,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                             Text(
                               '${money(p.price)} / ${p.unit}',
                               style: const TextStyle(
                                 color: blue,
+                                fontSize: 17,
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
