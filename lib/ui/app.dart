@@ -25,6 +25,9 @@ import '../domain/shop.dart';
 import '../domain/invoice_filter.dart';
 import 'print_service.dart';
 import '../utils/money_input_formatter.dart';
+
+import '../data/sync/outbox_repository.dart';
+
 part 'catalog.dart';
 part 'sales.dart';
 part 'operations.dart';

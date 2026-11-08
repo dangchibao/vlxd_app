@@ -558,6 +558,35 @@ class _CartPanelState extends State<CartPanel> {
       reason = TextEditingController();
   String customerId = '';
   bool hold = false;
+
+  // Cache one Outbox check per requestId, rather than launching a new
+  // database read whenever the cart widget rebuilds.
+  String? _checkedRequestId;
+  Future<String?>? _outboxStatusFuture;
+
+  Future<String?> _readOutboxStatus(String id) async {
+    if (!Get.isRegistered<OutboxRepository>()) {
+      throw StateError('Chưa kết nối Outbox của cửa hàng.');
+    }
+    final operation = await Get.find<OutboxRepository>().getById(id);
+    return operation?.status;
+  }
+
+  Future<String?> _statusFor(ShopController c) {
+    if (_checkedRequestId != c.requestId || _outboxStatusFuture == null) {
+      _checkedRequestId = c.requestId;
+      _outboxStatusFuture = _readOutboxStatus(c.requestId);
+    }
+    return _outboxStatusFuture!;
+  }
+
+  void _refreshOutboxStatus(ShopController c) {
+    setState(() {
+      _checkedRequestId = c.requestId;
+      _outboxStatusFuture = _readOutboxStatus(c.requestId);
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -757,40 +786,121 @@ class _CartPanelState extends State<CartPanel> {
             field(reason, 'Lý do duyệt bán âm'),
           ],
           const SizedBox(height: 8),
-          FilledButton.icon(
-            onPressed: c.busy || c.cart.isEmpty
-                ? null
-                : () => attempt(() async {
-                    final shippingAmount = whole(shipping.text);
-                    final amount = paid.text.trim().isEmpty
-                        ? c.subtotal + shippingAmount
-                        : whole(paid.text);
-                    if (!await confirm(
-                      context,
-                      hold ? 'Xác nhận giữ hàng?' : 'Xác nhận chốt đơn?',
-                      'Tổng ${money(c.subtotal + shippingAmount)}\nThu ${money(amount)}${exceeds ? '\nBán âm: ${reason.text}' : ''}',
-                    )) {
-                      return;
-                    }
-                    final order = await c.checkout(
-                      customerId: customerId,
-                      paid: amount,
-                      ship: shippingAmount,
-                      hold: hold,
-                      negativeReason: reason.text.trim(),
-                    );
-                    paid.clear();
-                    reason.clear();
-                    if (context.mounted) await showOrder(context, order);
-                  }),
-            icon: const Icon(Icons.check_circle_outline),
-            label: Text(
-              hold
-                  ? 'Xác nhận giữ đơn'
-                  : c.isLive
-                  ? 'Chốt đơn'
-                  : 'Chốt đơn mẫu',
-            ),
+          // For real accounts, show Outbox status before attempting a sale.
+          // Demo keeps the original checkout button behavior.
+          FutureBuilder<String?>(
+            future: c.isLive ? _statusFor(c) : null,
+            builder: (context, snapshot) {
+              final checking =
+                  c.isLive && snapshot.connectionState != ConnectionState.done;
+              final checkFailed = c.isLive && snapshot.hasError;
+              final status = snapshot.data;
+              final alreadyQueued = c.isLive && status != null;
+              final blocked =
+                  c.busy ||
+                  c.cart.isEmpty ||
+                  checking ||
+                  checkFailed ||
+                  alreadyQueued;
+
+              String? message;
+              if (checking) {
+                message = 'Đang kiểm tra hóa đơn trên máy...';
+              } else if (checkFailed) {
+                message =
+                    'Không kiểm tra được Outbox. '
+                    'Tạm khóa Chốt đơn để bảo vệ dữ liệu.';
+              } else if (alreadyQueued) {
+                message = switch (status) {
+                  'pending' =>
+                    'Đã lưu trên máy • Chờ đồng bộ Firebase. '
+                        'Chưa phải hóa đơn đã chốt.',
+                  'syncing' => 'Đơn đang đồng bộ. Không chốt lại.',
+                  'failed' =>
+                    'Chưa xác minh được đơn trên Firebase. '
+                        'Không tạo đơn mới.',
+                  'synced' =>
+                    'Đơn đã được đồng bộ. '
+                        'Không chốt lại mã giao dịch này.',
+                  _ =>
+                    'Đơn đã có trong Outbox ($status). '
+                        'Cần kiểm tra trước khi thao tác.',
+                };
+              }
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (message != null) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              message,
+                              style: const TextStyle(
+                                color: Color(0xFF657993),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          if (c.isLive)
+                            IconButton(
+                              tooltip: 'Kiểm tra lại trạng thái Outbox',
+                              onPressed: () => _refreshOutboxStatus(c),
+                              icon: const Icon(Icons.refresh),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  FilledButton.icon(
+                    onPressed: blocked
+                        ? null
+                        : () => attempt(() async {
+                            final shippingAmount = whole(shipping.text);
+                            final amount = paid.text.trim().isEmpty
+                                ? c.subtotal + shippingAmount
+                                : whole(paid.text);
+                            if (!await confirm(
+                              context,
+                              hold
+                                  ? 'Xác nhận giữ hàng?'
+                                  : 'Xác nhận chốt đơn?',
+                              'Tổng ${money(c.subtotal + shippingAmount)}\n'
+                              'Thu ${money(amount)}'
+                              '${exceeds ? '\nBán âm: ${reason.text}' : ''}',
+                            )) {
+                              return;
+                            }
+                            // Checkout performs its own Outbox check again.
+                            final order = await c.checkout(
+                              customerId: customerId,
+                              paid: amount,
+                              ship: shippingAmount,
+                              hold: hold,
+                              negativeReason: reason.text.trim(),
+                            );
+                            paid.clear();
+                            reason.clear();
+                            if (context.mounted) {
+                              await showOrder(context, order);
+                            }
+                          }),
+                    icon: const Icon(Icons.check_circle_outline),
+                    label: Text(
+                      hold
+                          ? 'Xác nhận giữ đơn'
+                          : c.isLive
+                          ? 'Chốt đơn'
+                          : 'Chốt đơn mẫu',
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 10),
           OutlinedButton.icon(
