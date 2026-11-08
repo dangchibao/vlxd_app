@@ -145,7 +145,7 @@ void main() {
         paid: 1000000,
         ship: 150000,
       ),
-      throwsA(isA<Exception>()),
+      throwsA(isA<StateError>()),
     );
 
     final pending = await outbox.getPending();
@@ -165,7 +165,7 @@ void main() {
         paid: -1000,
         ship: 0,
       ),
-      throwsArgumentError,
+      throwsA(isA<ArgumentError>()),
     );
 
     final pending = await outbox.getPending();
@@ -188,7 +188,7 @@ void main() {
 
     await expectLater(
       controller.checkout(customerId: 'KH001', paid: 1000000, ship: 150000),
-      throwsStateError,
+      throwsA(isA<StateError>()),
     );
 
     expect(controller.cart, hasLength(1));
