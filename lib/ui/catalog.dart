@@ -195,17 +195,41 @@ class ProductsPage extends StatelessWidget {
 Future<void> archiveProductDialog(BuildContext context, Product p) async {
   final c = Get.find<ShopController>();
   if (c.busy) return;
+
+  // Không tự động làm thay đổi giỏ hàng đã chuẩn bị hoặc đã lưu Outbox.
+  if (c.cart.any((line) => line.productId == p.id)) {
+    await attempt(() async {
+      throw StateError(
+        'Sản phẩm đang nằm trong giỏ hàng. '
+        'Kiểm tra và xử lý đơn hàng trước khi ngừng kinh doanh.',
+      );
+    });
+    return;
+  }
+
   if (!await confirm(
     context,
     'Xóa / ngừng bán ${p.name}?',
-    'Sản phẩm sẽ ẩn khỏi danh sách bán hàng. Tồn kho và hóa đơn cũ vẫn được giữ. Sản phẩm đang được giữ cho khách phải giải phóng trước.',
+    'Sản phẩm sẽ ẩn khỏi danh sách bán hàng. '
+        'Tồn kho và hóa đơn cũ vẫn được giữ. '
+        'Sản phẩm đang được giữ cho khách phải giải phóng trước.',
   )) {
     return;
   }
+  if (!context.mounted) return;
+
   await attempt(() async {
-    await c.change((d, a) => d.archiveProduct(p.id, a));
-    c.cart.removeWhere((line) => line.productId == p.id);
-    c.update();
+    // Kiểm tra lại sau khi người dùng xác nhận và ngay trước khi ghi.
+    await c.change((d, a) {
+      if (c.cart.any((line) => line.productId == p.id)) {
+        throw StateError(
+          'Sản phẩm vừa có trong giỏ hàng. '
+          'Không thể ngừng kinh doanh lúc này.',
+        );
+      }
+      return d.archiveProduct(p.id, a);
+    });
+    // Không dùng c.cart.removeWhere(): không thay đổi giỏ hàng ngầm.
   });
 }
 
