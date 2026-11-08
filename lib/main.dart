@@ -106,9 +106,9 @@ Future<void> main() async {
 
       // Điều phối đồng bộ.
 
-      final reconciler = OutboxReconciler(
-        outbox: outbox,
-        verifyRequest: verifier.verify,
+      final reconciler = Get.put(
+        OutboxReconciler(outbox: outbox, verifyRequest: verifier.verify),
+        permanent: true,
       );
 
       final syncRuntime = Get.put(

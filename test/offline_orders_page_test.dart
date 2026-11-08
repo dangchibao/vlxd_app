@@ -7,6 +7,8 @@ import 'package:vlxd_app/controllers/shop_controller.dart';
 import 'package:vlxd_app/data/local/app_database.dart';
 import 'package:vlxd_app/data/sync/offline_checkout_command.dart';
 import 'package:vlxd_app/data/sync/outbox_repository.dart';
+import 'package:vlxd_app/data/sync/outbox_reconciler.dart';
+import 'package:vlxd_app/data/sync/firebase_request_verifier.dart';
 import 'package:vlxd_app/domain/shop.dart';
 import 'package:vlxd_app/ui/offline_orders.dart';
 
@@ -264,6 +266,94 @@ void main() {
       findsOneWidget,
     );
     expect((await outbox.getById('offline-filter-failed'))!.status, 'failed');
+    await closePage(tester);
+  });
+
+  testWidgets('Xác minh thành công đánh dấu synced mà không gửi đơn', (
+    tester,
+  ) async {
+    const id = 'verify-ok-001';
+    await addOrder(id: id);
+    await outbox.markFailed(id, 'Mất phản hồi');
+    var verificationCalls = 0;
+    Get.put<OutboxReconciler>(
+      OutboxReconciler(
+        outbox: outbox,
+        verifyRequest: (requestId) async {
+          verificationCalls++;
+          expect(requestId, id);
+          return const RequestVerification(
+            status: RequestVerificationStatus.confirmed,
+            orderId: 'server-order-001',
+          );
+        },
+      ),
+    );
+    await openPage(tester);
+    await tester.tap(find.byKey(const ValueKey('offline-order-$id')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('verify-offline-failed-order')));
+    await tester.pumpAndSettle();
+    expect(verificationCalls, 1);
+    expect((await outbox.getById(id))!.status, 'synced');
+    expect(find.text('Đã xác nhận: 1'), findsOneWidget);
+    await closePage(tester);
+  });
+
+  testWidgets('Firebase không tìm thấy vẫn giữ failed, không retry', (
+    tester,
+  ) async {
+    const id = 'verify-missing-001';
+    await addOrder(id: id);
+    await outbox.markFailed(id, 'Mất phản hồi');
+    final before = (await outbox.getById(id))!;
+    Get.put<OutboxReconciler>(
+      OutboxReconciler(
+        outbox: outbox,
+        verifyRequest: (_) async => const RequestVerification(
+          status: RequestVerificationStatus.notFound,
+        ),
+      ),
+    );
+    await openPage(tester);
+    await tester.tap(find.byKey(const ValueKey('offline-order-$id')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('verify-offline-failed-order')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Firebase chưa tìm thấy đơn'), findsOneWidget);
+    final after = (await outbox.getById(id))!;
+    expect(after.status, 'failed');
+    expect(after.attempts, before.attempts);
+    await closePage(tester);
+  });
+
+  testWidgets('Firebase chưa rõ kết quả vẫn giữ failed, không retry', (
+    tester,
+  ) async {
+    const id = 'verify-uncertain-001';
+    await addOrder(id: id);
+    await outbox.markFailed(id, 'Mất phản hồi');
+    final before = (await outbox.getById(id))!;
+    Get.put<OutboxReconciler>(
+      OutboxReconciler(
+        outbox: outbox,
+        verifyRequest: (_) async => const RequestVerification(
+          status: RequestVerificationStatus.uncertain,
+        ),
+      ),
+    );
+    await openPage(tester);
+    await tester.tap(find.byKey(const ValueKey('offline-order-$id')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('verify-offline-failed-order')));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('Chưa xác minh được trên Firebase'),
+      findsOneWidget,
+    );
+    final after = (await outbox.getById(id))!;
+    expect(after.status, 'failed');
+    expect(after.attempts, before.attempts);
     await closePage(tester);
   });
 }

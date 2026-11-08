@@ -7,6 +7,7 @@ import '../controllers/shop_controller.dart';
 import '../data/local/app_database.dart';
 import '../data/sync/offline_checkout_command.dart';
 import '../data/sync/outbox_repository.dart';
+import '../data/sync/outbox_reconciler.dart';
 
 /// Màn hình CHỈ ĐỌC các giao dịch đã lưu trên thiết bị.
 /// Không gọi SyncRuntime, SyncEngine, retryFailed hay xóa bản ghi.
@@ -134,99 +135,188 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
 
   void _showDetails(PendingOperation operation) {
     final command = OfflineCheckoutCommand.decode(operation.payloadJson);
+    var verifying = false;
+    String? verifyMessage;
     showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Chi tiết đơn offline'),
-        content: SizedBox(
-          width: 550,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('Mã tham chiếu: ${_shortReference(operation.id)}'),
-                SelectableText('Request ID (kỹ thuật): ${operation.id}'),
-                const SizedBox(height: 8),
-                Text('Trạng thái: ${_statusText(operation.status)}'),
-                if (operation.status == 'failed') ...[
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, updateDialog) => AlertDialog(
+          title: const Text('Chi tiết đơn offline'),
+          content: SizedBox(
+            width: 550,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Mã tham chiếu: ${_shortReference(operation.id)}'),
+                  SelectableText('Request ID (kỹ thuật): ${operation.id}'),
                   const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFF2E8),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'CẦN KIỂM TRA: Không tự tạo lại đơn. Quản lý cần đối chiếu '
-                      'Request ID trên Firebase và xác minh hóa đơn, tồn kho '
-                      'trước khi quyết định xử lý.',
-                      style: TextStyle(
-                        color: Color(0xFF8A3B00),
-                        fontWeight: FontWeight.w700,
+                  Text('Trạng thái: ${_statusText(operation.status)}'),
+                  if (operation.status == 'failed') ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF2E8),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'CẦN KIỂM TRA: Không tự tạo lại đơn. Quản lý cần đối chiếu '
+                        'Request ID trên Firebase và xác minh hóa đơn, tồn kho '
+                        'trước khi quyết định xử lý.',
+                        style: TextStyle(
+                          color: Color(0xFF8A3B00),
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
+                  ],
+                  if (verifyMessage != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      verifyMessage!,
+                      key: const ValueKey('offline-verification-result'),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                  Text('Số lần thử đồng bộ: ${operation.attempts}'),
+                  Text('Lưu lúc: ${_date(operation.createdAt)}'),
+                  Text('Khách hàng: ${_customerName(command.customerId)}'),
+                  Text('Mã khách hàng: ${command.customerId}'),
+                  Text('Nhân viên: ${_staffName(command.actorId)}'),
+                  Text('UID nhân viên: ${command.actorId}'),
+                  Text('Tiền đã thu: ${_money(command.paid)}'),
+                  Text('Phí giao hàng: ${_money(command.ship)}'),
+                  Text('Giữ hàng / đặt cọc: ${command.hold ? 'Có' : 'Không'}'),
+                  if (command.negativeReason.isNotEmpty)
+                    Text('Lý do bán âm: ${command.negativeReason}'),
+                  if (operation.lastError != null &&
+                      operation.lastError!.isNotEmpty)
+                    Text('Ghi chú đồng bộ: ${operation.lastError}'),
+                  const Divider(height: 24),
+                  const Text(
+                    'Sản phẩm (giá và quy đổi tại lúc lưu)',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  for (final line in command.lines)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(_productName(line.productId)),
+                      subtitle: Text(
+                        'Mã sản phẩm: ${line.productId}\n'
+                        'Số lượng quy đổi: ${line.area}\n'
+                        'Đơn giá khi lưu: ${_money(line.quotedPrice)} / đơn vị\n'
+                        'Hệ số quy đổi: ${line.quotedRatio}'
+                        '${line.note.isEmpty ? '' : '\nGhi chú: ${line.note}'}',
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Đây là lệnh lưu trên thiết bị. Chưa được coi là hóa đơn '
+                    'hoàn tất nếu server chưa xác nhận.',
+                    style: TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ],
-                Text('Số lần thử đồng bộ: ${operation.attempts}'),
-                Text('Lưu lúc: ${_date(operation.createdAt)}'),
-                Text('Khách hàng: ${_customerName(command.customerId)}'),
-                Text('Mã khách hàng: ${command.customerId}'),
-                Text('Nhân viên: ${_staffName(command.actorId)}'),
-                Text('UID nhân viên: ${command.actorId}'),
-                Text('Tiền đã thu: ${_money(command.paid)}'),
-                Text('Phí giao hàng: ${_money(command.ship)}'),
-                Text('Giữ hàng / đặt cọc: ${command.hold ? 'Có' : 'Không'}'),
-                if (command.negativeReason.isNotEmpty)
-                  Text('Lý do bán âm: ${command.negativeReason}'),
-                if (operation.lastError != null &&
-                    operation.lastError!.isNotEmpty)
-                  Text('Ghi chú đồng bộ: ${operation.lastError}'),
-                const Divider(height: 24),
-                const Text(
-                  'Sản phẩm (giá và quy đổi tại lúc lưu)',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                for (final line in command.lines)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(_productName(line.productId)),
-                    subtitle: Text(
-                      'Mã sản phẩm: ${line.productId}\n'
-                      'Số lượng quy đổi: ${line.area}\n'
-                      'Đơn giá khi lưu: ${_money(line.quotedPrice)} / đơn vị\n'
-                      'Hệ số quy đổi: ${line.quotedRatio}'
-                      '${line.note.isEmpty ? '' : '\nGhi chú: ${line.note}'}',
-                    ),
-                  ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Đây là lệnh lưu trên thiết bị. Chưa được coi là hóa đơn '
-                  'hoàn tất nếu server chưa xác nhận.',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ],
+              ),
             ),
           ),
+          actions: [
+            if (operation.status == 'failed')
+              OutlinedButton.icon(
+                key: const ValueKey('verify-offline-failed-order'),
+                onPressed: verifying
+                    ? null
+                    : () async {
+                        updateDialog(() {
+                          verifying = true;
+                          verifyMessage = null;
+                        });
+                        String message;
+                        var confirmed = false;
+                        try {
+                          if (!Get.isRegistered<OutboxReconciler>() ||
+                              !Get.isRegistered<OutboxRepository>() ||
+                              !Get.isRegistered<ShopController>()) {
+                            throw StateError(
+                              'Chưa sẵn sàng xác minh Firebase.',
+                            );
+                          }
+                          final actor = Get.find<ShopController>().actor;
+                          final outbox = Get.find<OutboxRepository>();
+                          final current = await outbox.getById(operation.id);
+                          if (actor == null ||
+                              actor.id != command.actorId ||
+                              current == null ||
+                              current.status != 'failed' ||
+                              current.operationType != 'checkout.v1' ||
+                              current.payloadJson != operation.payloadJson) {
+                            throw StateError(
+                              'Đơn hoặc phiên đăng nhập đã thay đổi. Mở lại danh sách để kiểm tra.',
+                            );
+                          }
+                          final result = await Get.find<OutboxReconciler>()
+                              .reconcile(operation.id);
+                          switch (result) {
+                            case ReconcileResult.confirmed:
+                              final refreshed = await outbox.getById(
+                                operation.id,
+                              );
+                              confirmed = refreshed?.status == 'synced';
+                              message = confirmed
+                                  ? 'Firebase đã xác nhận. Đơn chuyển sang Đã đồng bộ.'
+                                  : 'Chưa xác nhận được trạng thái lưu trên máy.';
+                            case ReconcileResult.notFound:
+                              message = 'Firebase chưa tìm thấy đơn. Giữ nguyên trạng thái Cần xác minh; không tự gửi lại.';
+                            case ReconcileResult.uncertain:
+                              message = 'Chưa xác minh được trên Firebase (mạng, quyền hoặc dữ liệu). Không gửi lại đơn.';
+                            case ReconcileResult.unsupported:
+                              message = 'Loại đơn chưa được hỗ trợ xác minh.';
+                          }
+                        } catch (error) {
+                          message = 'Không thể kiểm tra: $error';
+                        }
+                        if (!ctx.mounted) return;
+                        updateDialog(() {
+                          verifying = false;
+                          verifyMessage = message;
+                        });
+                        if (confirmed) {
+                          Navigator.pop(ctx);
+                          if (mounted) {
+                            ScaffoldMessenger.maybeOf(
+                              context,
+                            )?.showSnackBar(SnackBar(content: Text(message)));
+                          }
+                        }
+                      },
+                icon: verifying
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.cloud_done_outlined),
+                label: const Text('Kiểm tra trên Firebase'),
+              ),
+            TextButton.icon(
+              key: const ValueKey('copy-offline-request-id'),
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: operation.id));
+                if (!ctx.mounted) return;
+                ScaffoldMessenger.maybeOf(ctx)?.showSnackBar(
+                  const SnackBar(content: Text('Đã sao chép mã giao dịch')),
+                );
+              },
+              icon: const Icon(Icons.copy_outlined),
+              label: const Text('Sao chép mã giao dịch'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Đóng'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton.icon(
-            key: const ValueKey('copy-offline-request-id'),
-            onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: operation.id));
-              if (!ctx.mounted) return;
-              ScaffoldMessenger.maybeOf(ctx)?.showSnackBar(
-                const SnackBar(content: Text('Đã sao chép mã giao dịch')),
-              );
-            },
-            icon: const Icon(Icons.copy_outlined),
-            label: const Text('Sao chép mã giao dịch'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Đóng'),
-          ),
-        ],
       ),
     );
   }
