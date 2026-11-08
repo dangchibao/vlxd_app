@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../controllers/shop_controller.dart';
 import 'firebase_request_verifier.dart';
+import 'auto_recovery_service.dart';
 import 'offline_checkout_command.dart';
 import 'offline_checkout_preflight.dart';
 import 'outbox_reconciler.dart';
@@ -35,6 +36,10 @@ class AutoSyncCoordinator {
   StreamSubscription<User?>? _authSubscription;
   bool _running = false;
   bool _initialized = false;
+  late final AutoRecoveryService _recovery = AutoRecoveryService(
+    outbox: outbox,
+    reconciler: reconciler,
+  );
 
   AutoSyncCoordinator({
     required this.auth,
@@ -85,6 +90,10 @@ class AutoSyncCoordinator {
         await runtime.initialize();
         _initialized = true;
       }
+
+      // Read-only automatic recovery for interrupted and uncertain checkouts.
+      // Does not dispatch, retry or approve any order.
+      await _recovery.sweep(actorId: user.uid);
 
       // Bound a single sweep to avoid monopolizing the app.
       for (var count = 0; count < 20; count++) {
