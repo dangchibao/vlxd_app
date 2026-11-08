@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../controllers/shop_controller.dart';
 import 'firebase_request_verifier.dart';
 import 'offline_checkout_command.dart';
+import 'offline_checkout_preflight.dart';
 import 'outbox_reconciler.dart';
 import 'outbox_repository.dart';
 import 'sync_engine.dart';
@@ -56,7 +57,7 @@ class AutoSyncCoordinator {
         attempts == 0 &&
         command.requestId == operationId &&
         command.actorId == actorId &&
-        command.lines.isNotEmpty &&
+        OfflineCheckoutPreflight.isValid(command) &&
         command.negativeReason.trim().isEmpty;
   }
 

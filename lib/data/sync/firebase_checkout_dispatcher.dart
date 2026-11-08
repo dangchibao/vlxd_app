@@ -6,6 +6,7 @@ import '../local/app_database.dart';
 import '../../domain/shop.dart';
 import 'firebase_request_verifier.dart';
 import 'offline_checkout_command.dart';
+import 'offline_checkout_preflight.dart';
 
 /// Xử lý một lệnh checkout.v1 đã được SyncEngine lấy từ Outbox.
 ///
@@ -46,6 +47,11 @@ class FirebaseCheckoutDispatcher {
       command = OfflineCheckoutCommand.decode(operation.payloadJson);
     } catch (error) {
       throw FormatException('Không đọc được lệnh checkout: $error');
+    }
+
+    final invalidReason = OfflineCheckoutPreflight.invalidReason(command);
+    if (invalidReason != null) {
+      throw StateError('Đơn offline không hợp lệ: $invalidReason');
     }
 
     if (command.requestId.isEmpty ||
