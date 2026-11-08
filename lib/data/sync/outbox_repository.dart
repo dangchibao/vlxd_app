@@ -9,6 +9,20 @@ class OutboxRepository {
 
   OutboxRepository(this.db);
 
+  /// Tìm giao dịch theo requestId.
+  ///
+  /// Trả về null nếu giao dịch chưa có trong Outbox.
+  /// Không thay đổi trạng thái hoặc gửi Firebase.
+  Future<PendingOperation?> getById(String requestId) async {
+    if (requestId.trim().isEmpty) {
+      throw ArgumentError('requestId không được để trống.');
+    }
+
+    return (db.select(
+      db.pendingOperations,
+    )..where((t) => t.id.equals(requestId))).getSingleOrNull();
+  }
+
   /// Lưu lệnh checkout vào Outbox.
   /// Không tự gửi Firebase ở bước này.
   Future<void> enqueueCheckout(OfflineCheckoutCommand command) async {

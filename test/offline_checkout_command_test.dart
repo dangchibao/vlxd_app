@@ -169,4 +169,56 @@ void main() {
     expect(pending, hasLength(1));
     expect(pending.single.id, 'request-004');
   });
+
+  test('getById nhận diện giao dịch đã lưu trong Outbox', () async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    final outbox = OutboxRepository(db);
+
+    expect(await outbox.getById('request-check-001'), isNull);
+
+    final command = OfflineCheckoutCommand(
+      requestId: 'request-check-001',
+      actorId: 'employee-001',
+      customerId: 'KH001',
+      lines: const [
+        OfflineCheckoutLine(
+          productId: 'PR6060VD',
+          area: 144000,
+          note: '',
+          quotedPrice: 100000,
+          quotedRatio: 1,
+        ),
+      ],
+      paid: 1000000,
+      ship: 0,
+      hold: false,
+      negativeReason: '',
+      createdAt: DateTime.utc(2026, 11, 8),
+    );
+
+    await outbox.enqueueCheckout(command);
+
+    final pending = await outbox.getById(command.requestId);
+
+    expect(pending, isNotNull);
+    expect(pending!.id, command.requestId);
+    expect(pending.status, 'pending');
+    expect(pending.operationType, 'checkout.v1');
+
+    await outbox.markFailed(command.requestId, 'Cần xác minh');
+
+    final failed = await outbox.getById(command.requestId);
+
+    expect(failed, isNotNull);
+    expect(failed!.status, 'failed');
+
+    await outbox.markSynced(command.requestId);
+
+    final synced = await outbox.getById(command.requestId);
+
+    expect(synced, isNotNull);
+    expect(synced!.status, 'synced');
+  });
 }
