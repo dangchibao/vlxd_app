@@ -48,20 +48,13 @@ class SessionController extends GetxController {
   int _profileEpoch = 0;
 
   // ============================================================
-  // KIỂM TRA ĐIỀU KIỆN ĐỒNG BỘ
+  // TRẠNG THÁI ĐỒNG BỘ
   // ============================================================
 
-  /// Chỉ cho phép bắt đầu đồng bộ khi:
-  /// - Có tài khoản Firebase đang đăng nhập.
-  /// - ShopController đã kết nối đúng tài khoản.
-  /// - Không trong quá trình tải phiên đăng nhập.
-  /// - Không yêu cầu đổi mật khẩu.
-  /// - Không có lỗi phiên đăng nhập.
+  /// Kiểm tra điều kiện cục bộ để bắt đầu đồng bộ.
   ///
-  /// Lưu ý:
-  /// Getter này chỉ kiểm tra trạng thái cục bộ.
-  /// FirebaseCheckoutDispatcher vẫn phải kiểm tra
-  /// quyền trực tiếp từ server trước khi gửi giao dịch.
+  /// FirebaseCheckoutDispatcher vẫn phải xác minh
+  /// quyền truy cập trực tiếp từ server.
   bool get canStartSync {
     final user = auth.currentUser;
     final actor = shop.actor;
@@ -72,6 +65,27 @@ class SessionController extends GetxController {
         !loading &&
         !mustChangePassword &&
         error == null;
+  }
+
+  /// Callback thông báo khi điều kiện đồng bộ thay đổi.
+  /// Hiện chưa kết nối với SyncRuntime.
+  void Function(bool canSync)? onSyncAvailabilityChanged;
+
+  bool _lastSyncAvailability = false;
+
+  void _notifySyncAvailability() {
+    final available = canStartSync;
+
+    if (available == _lastSyncAvailability) return;
+
+    _lastSyncAvailability = available;
+    onSyncAvailabilityChanged?.call(available);
+  }
+
+  /// Cập nhật giao diện và thông báo trạng thái đồng bộ.
+  void _notifyStateChanged() {
+    update();
+    _notifySyncAvailability();
   }
 
   // ============================================================
@@ -93,7 +107,7 @@ class SessionController extends GetxController {
       onError: (Object e) {
         error = readableError(e);
         loading = false;
-        update();
+        _notifyStateChanged();
       },
     );
   }
@@ -113,11 +127,11 @@ class SessionController extends GetxController {
     mustChangePassword = false;
     loading = user != null;
 
-    update();
+    _notifyStateChanged();
 
     if (user == null) {
       loading = false;
-      update();
+      _notifyStateChanged();
       return;
     }
 
@@ -150,7 +164,7 @@ class SessionController extends GetxController {
                   'Liên hệ chủ cửa hàng.';
 
               loading = false;
-              update();
+              _notifyStateChanged();
               return;
             }
 
@@ -161,7 +175,12 @@ class SessionController extends GetxController {
 
             if (mustChangePassword) {
               _closeProtectedRoutes();
+
               await shop.clearSession();
+
+              if (epoch != _profileEpoch || generation != _generation) {
+                return;
+              }
             } else {
               final role = p['role'] == 'owner' ? Role.owner : Role.sales;
 
@@ -175,11 +194,15 @@ class SessionController extends GetxController {
                 await shop.connect(
                   Actor(user.uid, role, displayName: displayName),
                 );
+
+                if (epoch != _profileEpoch || generation != _generation) {
+                  return;
+                }
               }
             }
 
             if (epoch == _profileEpoch && generation == _generation) {
-              update();
+              _notifyStateChanged();
             }
           },
           onError: (Object e) async {
@@ -200,7 +223,7 @@ class SessionController extends GetxController {
             error = readableError(e);
             loading = false;
 
-            update();
+            _notifyStateChanged();
           },
         );
   }
@@ -213,7 +236,7 @@ class SessionController extends GetxController {
     loading = true;
     error = null;
 
-    update();
+    _notifyStateChanged();
 
     try {
       await auth.signInWithEmailAndPassword(
@@ -223,7 +246,7 @@ class SessionController extends GetxController {
     } catch (e) {
       loading = false;
       error = readableError(e);
-      update();
+      _notifyStateChanged();
     }
   }
 
@@ -234,13 +257,20 @@ class SessionController extends GetxController {
   Future<void> signOut() async {
     _closeProtectedRoutes();
 
-    await auth.signOut();
+    // Ngăn bắt đầu đồng bộ mới trước khi đăng xuất.
+    loading = true;
+    _notifyStateChanged();
 
-    error = null;
+    try {
+      await auth.signOut();
 
-    await shop.clearSession();
+      error = null;
 
-    update();
+      await shop.clearSession();
+    } finally {
+      loading = false;
+      _notifyStateChanged();
+    }
   }
 
   // ============================================================
@@ -273,7 +303,7 @@ class SessionController extends GetxController {
   }
 
   // ============================================================
-  // XỬ LÝ THÔNG BÁO LỖI FIREBASE
+  // XỬ LÝ LỖI FIREBASE
   // ============================================================
 
   static String readableError(Object e) {
@@ -315,6 +345,8 @@ class SessionController extends GetxController {
   void onClose() {
     _authSubscription?.cancel();
     _profile?.cancel();
+
+    onSyncAvailabilityChanged = null;
 
     super.onClose();
   }

@@ -631,10 +631,22 @@ Future<String?> editCustomer(BuildContext context, {Json? original}) async {
 }
 
 Future<void> collectPayment(BuildContext context, Json o) async {
-  final amount = TextEditingController(
-    text: '${(o['total'] as int) - ShopData.collected(o)}',
-  );
+  // Tính số tiền khách còn phải trả.
+  final remaining = (o['total'] as int) - ShopData.collected(o);
+
+  // Định dạng số tiền theo kiểu Việt Nam.
+  // Ví dụ: 870000 -> 870.000
+  String formatMoney(int value) {
+    return value.toString().replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (match) => '.',
+    );
+  }
+
+  final amount = TextEditingController(text: formatMoney(remaining));
+
   final paymentId = newId();
+
   await safeDialog<void>(
     context: context,
     builder: (ctx) => AlertDialog(
@@ -650,17 +662,23 @@ Future<void> collectPayment(BuildContext context, Json o) async {
         ),
         FilledButton(
           onPressed: () => attempt(() async {
+            // Chuyển chuỗi có dấu phân cách về giá trị số.
+            final paymentAmount = whole(amount.text.replaceAll('.', ''));
+
             await Get.find<ShopController>().change(
-              (d, a) =>
-                  d.recordPayment(o['id'], whole(amount.text), paymentId, a),
+              (d, a) => d.recordPayment(o['id'], paymentAmount, paymentId, a),
             );
-            if (ctx.mounted) Navigator.pop(ctx);
+
+            if (ctx.mounted) {
+              Navigator.pop(ctx);
+            }
           }),
           child: const Text('Xác nhận đã thu'),
         ),
       ],
     ),
   );
+
   amount.dispose();
 }
 
