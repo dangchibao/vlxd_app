@@ -48,6 +48,18 @@ class SalesPage extends StatelessWidget {
                         icon: const Icon(Icons.description_outlined),
                         label: const Text('Hóa đơn đã bán'),
                       ),
+                      if (c.isLive)
+                        OutlinedButton.icon(
+                          key: const ValueKey('open-offline-orders'),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (_) => const OfflineOrdersPage(),
+                            ),
+                          ),
+                          icon: const Icon(Icons.cloud_off_outlined),
+                          label: const Text('Đơn chờ đồng bộ'),
+                        ),
                       OutlinedButton.icon(
                         onPressed: () => Navigator.push(
                           context,

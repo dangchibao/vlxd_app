@@ -28,6 +28,8 @@ import '../utils/money_input_formatter.dart';
 
 import '../data/sync/outbox_repository.dart';
 
+import 'offline_orders.dart';
+
 part 'catalog.dart';
 part 'sales.dart';
 part 'operations.dart';
