@@ -12,6 +12,8 @@ import 'package:vlxd_app/controllers/shop_controller.dart';
 import 'package:vlxd_app/data/firestore_repository.dart';
 import 'package:vlxd_app/domain/shop.dart';
 
+import 'package:vlxd_app/data/sync/firebase_request_verifier.dart';
+
 // Emulator-only fixture setup. Never import the production Firebase options.
 const options = FirebaseOptions(
   apiKey: 'emulator-only-api-key',
@@ -95,6 +97,16 @@ void main() {
         );
         d.receive('P1', 1440000, 150000, DateTime.now(), actor, 'L1');
       }, a);
+
+      final beforeCheckout = await repoA.load();
+
+      print('BEFORE CHECKOUT orders: ${beforeCheckout.orders.length}');
+      print('BEFORE CHECKOUT stock: ${beforeCheckout.product('P1').stock}');
+      print(
+        'BEFORE CHECKOUT requestIds: '
+        '${beforeCheckout.orders.map((o) => o['requestId']).toList()}',
+      );
+
       final broadcast = repoB
           .watch()
           .firstWhere((d) => d.orders.length == 1)
@@ -109,11 +121,40 @@ void main() {
         actor: actor,
       );
       await Future.wait([repoA.transact(sell, a), repoB.transact(sell, b)]);
+
+      final afterCheckout = await repoA.load();
+
+      print('AFTER CHECKOUT orders: ${afterCheckout.orders.length}');
+      print('AFTER CHECKOUT stock: ${afterCheckout.product('P1').stock}');
+
       final synced = await broadcast;
+
+      final serverData = await repoA.load();
+
+      print('WATCH orders: ${synced.orders.length}');
+      print('WATCH stock: ${synced.product('P1').stock}');
+      print('SERVER orders: ${serverData.orders.length}');
+      print('SERVER stock: ${serverData.product('P1').stock}');
+
       expect(synced.orders, hasLength(1));
       expect(synced.product('P1').stock, 1296000);
       expect(ShopData.collected(synced.orders.first), 3456000);
       // Two different actions must rebase instead of overwriting each other.
+
+      // Xác minh request đã được Firebase ghi nhận.
+      final verifier = FirebaseRequestVerifier(dbB);
+
+      final confirmed = await verifier.verify('same-request');
+
+      expect(confirmed.status, RequestVerificationStatus.confirmed);
+
+      expect(confirmed.orderId, synced.orders.first['id']);
+
+      // Kiểm tra request chưa tồn tại trên máy chủ.
+      final missing = await verifier.verify('missing-request-$suffix');
+
+      expect(missing.status, RequestVerificationStatus.notFound);
+
       await Future.wait([
         repoA.transact(
           (d, actor) =>

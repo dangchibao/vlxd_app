@@ -1,12 +1,11 @@
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:vlxd_app/data/local/app_database.dart';
 import 'package:vlxd_app/data/sync/outbox_repository.dart';
 import 'package:vlxd_app/data/sync/sync_engine.dart';
-
-import 'dart:async';
-
 import 'package:vlxd_app/data/sync/sync_failure.dart';
 
 void main() {
@@ -180,6 +179,51 @@ void main() {
     expect(rows.single.lastError, startsWith('uncertain:'));
 
     // Không tự gửi lại giao dịch có kết quả chưa rõ.
+    expect(await engine.processNext(), SyncAttemptResult.idle);
+
+    expect(dispatchCount, 1);
+  });
+
+  // BÀI TEST MỚI THỨ 7
+  test('Máy chủ đã nhận đơn nhưng thiết bị mất phản hồi', () async {
+    await outbox.enqueue(
+      id: 'request-lost-response-001',
+      operationType: 'checkout.v1',
+      payloadJson: '{"requestId":"request-lost-response-001"}',
+    );
+
+    var serverCommitted = false;
+    var dispatchCount = 0;
+
+    final engine = SyncEngine(
+      outbox: outbox,
+      dispatcher: (_) async {
+        dispatchCount++;
+
+        // Giả lập máy chủ đã lưu giao dịch.
+        serverCommitted = true;
+
+        // Thiết bị mất phản hồi trước khi nhận xác nhận.
+        throw const SyncFailure(
+          SyncFailureKind.uncertain,
+          'Mất phản hồi sau khi máy chủ đã ghi',
+        );
+      },
+    );
+
+    final result = await engine.processNext();
+
+    expect(result, SyncAttemptResult.failed);
+    expect(serverCommitted, isTrue);
+
+    final rows = await db.select(db.pendingOperations).get();
+
+    expect(rows.single.id, 'request-lost-response-001');
+    expect(rows.single.status, 'failed');
+    expect(rows.single.attempts, 1);
+    expect(rows.single.lastError, startsWith('uncertain:'));
+
+    // Không được tự động gửi lại lần thứ hai.
     expect(await engine.processNext(), SyncAttemptResult.idle);
 
     expect(dispatchCount, 1);

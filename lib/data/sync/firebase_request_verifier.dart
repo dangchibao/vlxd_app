@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'request_verification_logic.dart';
+
 enum RequestVerificationStatus { confirmed, notFound, uncertain }
 
 class RequestVerification {
@@ -17,6 +19,7 @@ class FirebaseRequestVerifier {
   FirebaseRequestVerifier(this.firestore, {this.storeId = 'bay-hai'});
 
   Future<RequestVerification> verify(String requestId) async {
+    // Kiểm tra requestId trước khi truy vấn Firebase.
     if (requestId.trim().isEmpty || requestId.contains('/')) {
       return const RequestVerification(
         status: RequestVerificationStatus.uncertain,
@@ -27,12 +30,13 @@ class FirebaseRequestVerifier {
     try {
       final store = firestore.collection('stores').doc(storeId);
 
-      // Bắt buộc đọc trực tiếp từ máy chủ.
+      // Luôn đọc từ máy chủ, không dùng dữ liệu cache.
       final requestSnapshot = await store
           .collection('requests')
           .doc(requestId)
           .get(const GetOptions(source: Source.server));
 
+      // Máy chủ xác nhận chưa có request.
       if (!requestSnapshot.exists) {
         return const RequestVerification(
           status: RequestVerificationStatus.notFound,
@@ -40,19 +44,22 @@ class FirebaseRequestVerifier {
       }
 
       final requestData = requestSnapshot.data();
-      final value = requestData?['value'];
+      final requestValue = requestData?['value'];
 
-      if (value is! Map ||
-          value['id'] != requestId ||
-          value['orderId'] is! String) {
+      // Kiểm tra cấu trúc request trước khi đọc orderId.
+      if (requestValue is! Map ||
+          requestValue['id'] != requestId ||
+          requestValue['orderId'] is! String ||
+          (requestValue['orderId'] as String).isEmpty) {
         return const RequestVerification(
           status: RequestVerificationStatus.uncertain,
           message: 'Bản ghi request không hợp lệ',
         );
       }
 
-      final orderId = value['orderId'] as String;
+      final orderId = requestValue['orderId'] as String;
 
+      // Kiểm tra hóa đơn tương ứng trực tiếp trên máy chủ.
       final orderSnapshot = await store
           .collection('orders')
           .doc(orderId)
@@ -68,22 +75,30 @@ class FirebaseRequestVerifier {
       final orderData = orderSnapshot.data();
       final orderValue = orderData?['value'];
 
-      if (orderValue is! Map ||
-          orderValue['id'] != orderId ||
-          orderValue['requestId'] != requestId) {
+      // Dùng chung logic xác minh đã có bài test riêng.
+      final result = RequestVerificationLogic.check(
+        requestId: requestId,
+        requestValue: Map<String, dynamic>.from(requestValue),
+        orderValue: orderValue is Map
+            ? Map<String, dynamic>.from(orderValue)
+            : null,
+      );
+
+      if (result != RequestCheckResult.confirmed) {
         return const RequestVerification(
           status: RequestVerificationStatus.uncertain,
           message: 'Request và hóa đơn không khớp',
         );
       }
 
+      // Chỉ xác nhận khi request và hóa đơn khớp nhau.
       return RequestVerification(
         status: RequestVerificationStatus.confirmed,
         orderId: orderId,
       );
     } catch (error) {
-      // Mất mạng, hết quyền hoặc lỗi server:
-      // tuyệt đối không suy luận là chưa có đơn.
+      // Mất mạng, thiếu quyền hoặc lỗi Firebase:
+      // không được suy luận rằng giao dịch chưa tồn tại.
       return RequestVerification(
         status: RequestVerificationStatus.uncertain,
         message: error.toString(),
