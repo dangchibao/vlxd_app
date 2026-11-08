@@ -2,10 +2,34 @@ import 'package:drift/drift.dart';
 
 import '../local/app_database.dart';
 
+import 'offline_checkout_command.dart';
+
 class OutboxRepository {
   final AppDatabase db;
 
   OutboxRepository(this.db);
+
+  /// Lưu lệnh checkout vào Outbox.
+  /// Không tự gửi Firebase ở bước này.
+  Future<void> enqueueCheckout(OfflineCheckoutCommand command) async {
+    if (command.requestId.trim().isEmpty || command.requestId.contains('/')) {
+      throw ArgumentError('Mã giao dịch không hợp lệ.');
+    }
+
+    if (command.actorId.trim().isEmpty) {
+      throw ArgumentError('Thiếu tài khoản tạo đơn.');
+    }
+
+    if (command.lines.isEmpty) {
+      throw ArgumentError('Không thể lưu đơn hàng trống.');
+    }
+
+    await enqueue(
+      id: command.requestId,
+      operationType: 'checkout.v1',
+      payloadJson: command.encode(),
+    );
+  }
 
   // Thêm một thao tác mới vào hàng đợi.
   Future<void> enqueue({

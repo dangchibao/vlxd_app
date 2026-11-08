@@ -82,4 +82,91 @@ void main() {
     expect(restored.paid, 1000000);
     expect(restored.lines.single.area, 5);
   });
+
+  test('enqueueCheckout lưu đúng hóa đơn vào Drift', () async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    final outbox = OutboxRepository(db);
+
+    final command = OfflineCheckoutCommand(
+      requestId: 'request-003',
+      actorId: 'employee-001',
+      customerId: 'customer-001',
+      lines: const [
+        OfflineCheckoutLine(
+          productId: 'product-001',
+          area: 5,
+          note: 'Giao buổi chiều',
+          quotedPrice: 200000,
+          quotedRatio: 1,
+        ),
+      ],
+      paid: 500000,
+      ship: 50000,
+      hold: true,
+      negativeReason: '',
+      createdAt: DateTime.utc(2026, 11, 8),
+    );
+
+    await outbox.enqueueCheckout(command);
+
+    final pending = await outbox.getPending();
+
+    expect(pending, hasLength(1));
+    expect(pending.single.id, command.requestId);
+    expect(pending.single.operationType, 'checkout.v1');
+    expect(pending.single.status, 'pending');
+
+    final restored = OfflineCheckoutCommand.decode(pending.single.payloadJson);
+
+    expect(restored.requestId, command.requestId);
+    expect(restored.actorId, command.actorId);
+    expect(restored.customerId, command.customerId);
+    expect(restored.paid, command.paid);
+    expect(restored.ship, command.ship);
+    expect(restored.hold, isTrue);
+    expect(restored.lines.single.area, 5);
+    expect(restored.lines.single.note, 'Giao buổi chiều');
+    expect(restored.lines.single.quotedPrice, 200000);
+  });
+
+  test('enqueueCheckout không lưu trùng requestId', () async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    final outbox = OutboxRepository(db);
+
+    final command = OfflineCheckoutCommand(
+      requestId: 'request-004',
+      actorId: 'employee-001',
+      customerId: 'customer-001',
+      lines: const [
+        OfflineCheckoutLine(
+          productId: 'product-001',
+          area: 10,
+          note: '',
+          quotedPrice: 150000,
+          quotedRatio: 1,
+        ),
+      ],
+      paid: 1500000,
+      ship: 0,
+      hold: false,
+      negativeReason: '',
+      createdAt: DateTime.utc(2026, 11, 8),
+    );
+
+    await outbox.enqueueCheckout(command);
+
+    await expectLater(
+      outbox.enqueueCheckout(command),
+      throwsA(isA<Exception>()),
+    );
+
+    final pending = await outbox.getPending();
+
+    expect(pending, hasLength(1));
+    expect(pending.single.id, 'request-004');
+  });
 }
