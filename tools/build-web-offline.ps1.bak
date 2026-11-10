@@ -1,0 +1,56 @@
+param(
+  [switch]$Emulator,
+  [string]$Output = 'build/web'
+)
+
+$ErrorActionPreference = 'Stop'
+
+# PowerShell 5.1/7 compatible. Use ASCII text in this script so that
+# Windows PowerShell 5.1 never misreads UTF-8 without BOM.
+if ($Emulator -and ($Output.Replace('\', '/') -eq 'build/web')) {
+  throw 'Emulator build must use a separate output directory.'
+}
+
+$flags = @('build', 'web', '--release', '--no-pub', '--no-web-resources-cdn', '--pwa-strategy=none', "--output=$Output")
+if ($Emulator) {
+  $flags += '--dart-define=USE_FIREBASE_EMULATOR=true'
+  $flags += '--dart-define=AUTO_SYNC_OUTBOX=true'
+}
+
+& flutter @flags
+if ($LASTEXITCODE -ne 0) {
+  throw "Flutter build failed with exit code $LASTEXITCODE."
+}
+
+$root = (Resolve-Path -LiteralPath $Output -ErrorAction Stop).Path
+$resources = @(
+  Get-ChildItem -LiteralPath $root -File -Recurse |
+    ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') } |
+    Where-Object { $_ -notmatch '^\.' -and $_ -notmatch '\.symbols$|\.map$' -and $_ -notmatch '^offline-(sw|manifest)\.js$' } |
+    Sort-Object
+)
+
+foreach ($required in @('index.html', 'main.dart.js', 'sqlite3.wasm', 'drift_worker.js')) {
+  if ($required -notin $resources) {
+    throw "Missing required Web resource: $required"
+  }
+}
+
+$fingerprint = ($resources | ForEach-Object {
+  $path = Join-Path $root ($_.Replace('/', [IO.Path]::DirectorySeparatorChar))
+  "$_=$((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash)"
+}) -join "`n"
+
+$sha = [System.Security.Cryptography.SHA256]::Create()
+try {
+  $hashBytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($fingerprint))
+} finally {
+  $sha.Dispose()
+}
+$version = ([BitConverter]::ToString($hashBytes)).Replace('-', '').Substring(0, 24)
+$manifest = @{ version = $version; files = $resources } | ConvertTo-Json -Compress -Depth 5
+$manifestPath = Join-Path $root 'offline-manifest.js'
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($manifestPath, "self.vlxdOfflineManifest = $manifest;`n", $utf8NoBom)
+Write-Output "Web offline build complete: $version"
+Write-Output "Output: $root"

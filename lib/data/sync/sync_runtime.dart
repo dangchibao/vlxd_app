@@ -24,7 +24,7 @@ class SyncRuntime {
   /// Khôi phục trạng thái các thao tác bị gián đoạn,
   /// nhưng chưa tự gửi lại.
 
-  Future<void> initialize() async {
+  Future<void> initialize({String? actorId, Duration? staleAfter}) async {
     if (_running) return;
 
     _running = true;
@@ -32,7 +32,7 @@ class SyncRuntime {
     try {
       // Cách ly các giao dịch đồng bộ bị gián đoạn.
       // Tuyệt đối không tự chuyển chúng về pending.
-      await outbox.quarantineInterrupted();
+      await outbox.quarantineInterrupted(staleAfter: staleAfter);
 
       // Đọc cả pending và failed để đối chiếu với server.
       // Không gọi engine.processNext() hoặc drain().
@@ -41,6 +41,9 @@ class SyncRuntime {
           .get();
 
       for (final operation in operations) {
+        if (actorId != null && offlineOperationOwner(operation) != actorId) {
+          continue;
+        }
         if (operation.status != 'pending' && operation.status != 'failed') {
           continue;
         }

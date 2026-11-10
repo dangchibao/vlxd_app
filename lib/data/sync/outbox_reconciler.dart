@@ -3,6 +3,7 @@ import 'package:drift/drift.dart';
 import '../local/app_database.dart';
 import 'firebase_request_verifier.dart';
 import 'offline_checkout_command.dart';
+import 'offline_book_operation.dart';
 import 'outbox_repository.dart';
 
 enum ReconcileResult { confirmed, notFound, uncertain, unsupported }
@@ -14,8 +15,33 @@ typedef RequestVerifier = Future<RequestVerification> Function(
 class OutboxReconciler {
   final OutboxRepository outbox;
   final RequestVerifier verifyRequest;
+  final Future<RequestVerification> Function(OfflineBookOperation)? verifyBook;
 
-  OutboxReconciler({required this.outbox, required this.verifyRequest});
+  OutboxReconciler({
+    required this.outbox,
+    required this.verifyRequest,
+    this.verifyBook,
+  });
+
+  Future<RequestVerification> verifyOperation(
+    PendingOperation operation,
+  ) async {
+    try {
+      if (OfflineBookOperation.supports(operation.operationType) &&
+          verifyBook != null) {
+        return await verifyBook!(OfflineBookOperation.decode(operation));
+      }
+      if (operation.operationType == 'checkout.v1') {
+        final command = OfflineCheckoutCommand.decode(operation.payloadJson);
+        if (command.requestId == operation.id) {
+          return await verifyRequest(command.requestId);
+        }
+      }
+    } catch (_) {}
+    return const RequestVerification(
+      status: RequestVerificationStatus.uncertain,
+    );
+  }
 
   Future<ReconcileResult> reconcile(String operationId) async {
     final db = outbox.db;
@@ -32,36 +58,19 @@ class OutboxReconciler {
     if (operation.status == 'synced') {
       return ReconcileResult.confirmed;
     }
+    if (operation.status == 'cancelled') return ReconcileResult.unsupported;
 
     // Không can thiệp thao tác đang được worker xử lý.
     if (operation.status == 'syncing') {
       return ReconcileResult.uncertain;
     }
 
-    if (operation.operationType != 'checkout.v1') {
+    if (operation.operationType != 'checkout.v1' &&
+        !(verifyBook != null &&
+            OfflineBookOperation.supports(operation.operationType))) {
       return ReconcileResult.unsupported;
     }
-
-    late OfflineCheckoutCommand command;
-
-    try {
-      command = OfflineCheckoutCommand.decode(operation.payloadJson);
-    } catch (_) {
-      return ReconcileResult.uncertain;
-    }
-
-    // ID Outbox phải khớp ID yêu cầu tạo đơn.
-    if (command.requestId != operation.id) {
-      return ReconcileResult.uncertain;
-    }
-
-    RequestVerification verification;
-
-    try {
-      verification = await verifyRequest(command.requestId);
-    } catch (_) {
-      return ReconcileResult.uncertain;
-    }
+    final verification = await verifyOperation(operation);
 
     switch (verification.status) {
       case RequestVerificationStatus.confirmed:
@@ -77,6 +86,8 @@ class OutboxReconciler {
             await (db.update(db.pendingOperations)..where(
                   (t) =>
                       t.id.equals(operationId) &
+                      t.payloadJson.equals(operation.payloadJson) &
+                      t.attempts.equals(operation.attempts) &
                       t.status.isIn(['pending', 'failed']),
                 ))
                 .write(

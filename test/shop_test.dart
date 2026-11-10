@@ -109,18 +109,6 @@ void main() {
     expect(lineMoney(144000, 240000), 3456000);
     expect(lineMoney(1, 235000), 24);
   });
-  test('room estimate rounds cartons up and rejects invalid inputs', () {
-    final r = RoomEstimate.calculate(5, 4, 5, 14400);
-    expect(r.requiredArea, 210000);
-    expect(r.cartons, 15);
-    expect(r.purchasedArea, 216000);
-    expect(() => RoomEstimate.calculate(0, 4, 5, 14400), throwsArgumentError);
-    expect(
-      () => RoomEstimate.calculate(double.nan, 4, 5, 14400),
-      throwsArgumentError,
-    );
-    expect(() => RoomEstimate.calculate(5, 4, -1, 14400), throwsArgumentError);
-  });
   test(
     'same checkout key remains idempotent after serializing and retrying',
     () {

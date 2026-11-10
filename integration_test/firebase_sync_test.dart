@@ -18,6 +18,7 @@ import 'package:vlxd_app/data/local/app_database.dart';
 import 'package:vlxd_app/data/sync/firebase_checkout_dispatcher.dart';
 import 'package:vlxd_app/data/sync/firebase_request_verifier.dart';
 import 'package:vlxd_app/data/sync/offline_checkout_command.dart';
+import 'package:vlxd_app/data/sync/offline_book_operation.dart';
 import 'package:vlxd_app/data/sync/outbox_repository.dart';
 import 'package:vlxd_app/data/sync/sync_engine.dart';
 import 'package:vlxd_app/domain/shop.dart';
@@ -265,16 +266,27 @@ void main() {
     try {
       final outbox = OutboxRepository(localDb);
       final requestId = 'offline-checkout-$suffix';
+      final customerId = 'KH-$suffix';
+      await repoA.transact((data, actor) {
+        data.customers.add({
+          'id': customerId,
+          'name': 'Khách thử',
+          'phone': '',
+        });
+        data.log(actor, 'Tạo khách thử', customerId, 'Firebase Emulator');
+      }, a);
 
       final stockBefore = (await repoA.load()).product(productId).stock;
 
       final ordersBefore = (await repoA.load()).orders.length;
       final checkoutProduct = (await repoA.load()).product(productId);
       final checkoutTotal = lineMoney(14400, checkoutProduct.price);
+      const discount = 25000;
+      const ship = 50000;
       final command = OfflineCheckoutCommand(
         requestId: requestId,
         actorId: userB.uid,
-        customerId: '',
+        customerId: customerId,
         lines: [
           OfflineCheckoutLine(
             productId: productId,
@@ -284,8 +296,9 @@ void main() {
             quotedRatio: 14400,
           ),
         ],
-        paid: checkoutTotal,
-        ship: 0,
+        paid: checkoutTotal - discount,
+        ship: ship,
+        discount: discount,
         hold: false,
         negativeReason: '',
         createdAt: DateTime.now(),
@@ -341,6 +354,49 @@ void main() {
       expect(updatedData.orders.length, ordersBefore + 1);
 
       expect(updatedData.product(productId).stock, stockBefore - 14400);
+      final order = updatedData.orders.singleWhere(
+        (o) => o['requestId'] == requestId,
+      );
+      expect(order['discount'], discount);
+      expect(order['total'], checkoutTotal - discount + ship);
+      expect(updatedData.debt(customerId), ship);
+      final payment = OfflineBookOperation(
+        type: OfflineBookOperation.payment,
+        id: 'pay-$suffix',
+        actorId: userB.uid,
+        target: order['id'],
+        amount: ship,
+        expectedCollected: checkoutTotal - discount,
+      );
+      final receipt = OfflineBookOperation(
+        type: OfflineBookOperation.receipt,
+        id: 'receive-$suffix',
+        actorId: userB.uid,
+        target: productId,
+        amount: 14400,
+        cost: 150000,
+        ratio: 14400,
+        unit: 'm²',
+        date: DateTime.now(),
+      );
+      for (final command in [payment, receipt]) {
+        await outbox.enqueue(
+          id: command.id,
+          operationType: command.type,
+          payloadJson: command.encode(),
+        );
+        expect(
+          await engine.processNext(expectedId: command.id),
+          SyncAttemptResult.synced,
+        );
+        await repoB.transact((data, actor) => command.apply(data, actor), b);
+        expect(
+          (await FirebaseRequestVerifier(dbB).verifyBook(command)).status,
+          RequestVerificationStatus.confirmed,
+        );
+      }
+      expect((await repoA.load()).debt(customerId), 0);
+      expect((await repoA.load()).product(productId).stock, stockBefore);
 
       // Bản ghi đã đồng bộ không được gửi lần nữa.
       expect(await engine.processNext(), SyncAttemptResult.idle);
@@ -353,6 +409,62 @@ void main() {
     } finally {
       await localDb.close();
     }
+
+    // Hai máy cùng bán khi chỉ đủ tồn cho một đơn.
+    final lastProduct = 'LAST-$suffix';
+    await repoA.transact((data, actor) {
+      data.saveProduct(
+        Product(
+          id: lastProduct,
+          code: lastProduct,
+          name: 'Hàng tồn cuối',
+          size: 'm³',
+          supplier: 'Emulator',
+          price: 100000,
+          ratio: 0,
+        ),
+        actor,
+      );
+      data.receive(
+        lastProduct,
+        10000,
+        50000,
+        DateTime.now(),
+        actor,
+        'LAST-LOT-$suffix',
+      );
+    }, a);
+    Future<bool> sellLast(
+      FirestoreRepository repo,
+      Actor actor,
+      String id,
+    ) async {
+      try {
+        await repo.transact(
+          (data, current) => data.checkout(
+            requestId: id,
+            lines: [CartLine(lastProduct, 10000)],
+            customerId: '',
+            paid: 100000,
+            ship: 0,
+            hold: false,
+            actor: current,
+          ),
+          actor,
+        );
+        return true;
+      } on StateError catch (error) {
+        if (!error.message.contains('vượt tồn')) rethrow;
+        return false;
+      }
+    }
+
+    final competing = await Future.wait([
+      sellLast(repoA, a, 'last-a-$suffix'),
+      sellLast(repoB, b, 'last-b-$suffix'),
+    ]);
+    expect(competing.where((sold) => sold), hasLength(1));
+    expect((await repoA.load()).product(lastProduct).stock, 0);
 
     // 10. Kiểm tra ghi dữ liệu lương.
     await repoB.transact((d, actor) {

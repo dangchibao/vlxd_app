@@ -15,6 +15,55 @@ Json sell(ShopData d, String id, {int paid = 0}) => d.checkout(
 );
 
 void main() {
+  test('Book adjustment cannot recreate debt by lowering valid receipts', () {
+    final d = ShopData.sample();
+    sell(d, 'paid-order', paid: 345600);
+    expect(
+      () => d.adjustCustomerBook(
+        'KH001',
+        345600,
+        295600,
+        'Hạ đã thu',
+        boss,
+        expectedReceivable: 345600,
+        expectedReceived: 345600,
+      ),
+      throwsStateError,
+    );
+    expect(d.debt('KH001'), 0);
+
+    final customer = d.customers.firstWhere((c) => c['id'] == 'KH001');
+    customer['receivedAdjustment'] = -50000;
+    d.adjustCustomerBook(
+      'KH001',
+      345600,
+      345600,
+      'Khôi phục theo phiếu thu',
+      boss,
+      expectedReceivable: 345600,
+      expectedReceived: 295600,
+    );
+    expect(d.debt('KH001'), 0);
+  });
+
+  test('A receipt is bounded by the order and the adjusted book', () {
+    final d = ShopData.sample();
+    final order = sell(d, 'adjusted-limit');
+    d.adjustCustomerBook(
+      'KH001',
+      345600,
+      50000,
+      'Đã nhận ngoài sổ đơn',
+      boss,
+      expectedReceivable: 345600,
+      expectedReceived: 0,
+    );
+    expect(d.collectible(order), 295600);
+    d.recordPayment(order['id'], d.collectible(order), 'final-payment', clerk);
+    expect(d.debt('KH001'), 0);
+    expect(d.collectible(order), 0);
+  });
+
   test('Opening debt book accepts target totals and audits without fake sales or inventory changes', () {
     final d = ShopData.sample();
     final stock = d.products.first.stock;

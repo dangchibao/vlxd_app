@@ -67,6 +67,7 @@ void main() {
       customerId: 'KH001',
       shippingText: '15000',
       paidText: '50000',
+      discountText: '25 000',
       hold: true,
       negativeReason: 'Chờ khách xác nhận',
     );
@@ -79,6 +80,7 @@ void main() {
     expect(restarted.draftCustomerId, 'KH001');
     expect(restarted.draftShippingText, '15000');
     expect(restarted.draftPaidText, '50000');
+    expect(restarted.draftDiscountText, '25 000');
     expect(restarted.draftHold, isTrue);
     expect(restarted.draftNegativeReason, 'Chờ khách xác nhận');
     restarted.onClose();

@@ -14,7 +14,7 @@ class SyncEngine {
 
   SyncEngine({required this.outbox, required this.dispatcher});
 
-  Future<SyncAttemptResult> processNext() async {
+  Future<SyncAttemptResult> processNext({String? expectedId}) async {
     if (_running) {
       return SyncAttemptResult.busy;
     }
@@ -22,7 +22,7 @@ class SyncEngine {
     _running = true;
 
     try {
-      final operation = await outbox.claimNext();
+      final operation = await outbox.claimNext(expectedId: expectedId);
 
       if (operation == null) {
         return SyncAttemptResult.idle;

@@ -10,7 +10,7 @@ class SalesPage extends StatelessWidget {
         final catalogue = Column(
           children: [
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
               child: Column(
                 children: [
                   TextField(
@@ -56,11 +56,6 @@ class SalesPage extends StatelessWidget {
                         label: const Text('Quét / nhập mã'),
                       ),
                       OutlinedButton.icon(
-                        onPressed: () => roomCalculator(context),
-                        icon: const Icon(Icons.calculate_outlined),
-                        label: const Text('Tính gạch theo phòng'),
-                      ),
-                      OutlinedButton.icon(
                         onPressed: () => c.navigate(9),
                         icon: const Icon(Icons.description_outlined),
                         label: const Text('Hóa đơn đã bán'),
@@ -95,14 +90,18 @@ class SalesPage extends StatelessWidget {
             Expanded(
               child: LayoutBuilder(
                 builder: (context, grid) => GridView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: grid.maxWidth > 750
+                    // Man hinh hep: it cot hon de chu va nut khong tran.
+                    // Chieu cao du de gia von, gia ban va thao tac hien du.
+                    crossAxisCount: grid.maxWidth >= 1100
+                        ? 4
+                        : grid.maxWidth >= 800
                         ? 3
-                        : grid.maxWidth > 450
+                        : grid.maxWidth >= 510
                         ? 2
                         : 1,
-                    mainAxisExtent: 375,
+                    mainAxisExtent: grid.maxWidth < 800 ? 390 : 365,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,
                   ),
@@ -116,7 +115,7 @@ class SalesPage extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Expanded(child: ProductPicture(p)),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 6),
                             Text(
                               '${p.name} ${p.size}',
                               maxLines: 2,
@@ -125,7 +124,7 @@ class SalesPage extends StatelessWidget {
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
-                            const SizedBox(height: 6),
+                            const SizedBox(height: 3),
                             productLotCostBadge(p),
                             const SizedBox(height: 6),
                             const Text(
@@ -154,9 +153,9 @@ class SalesPage extends StatelessWidget {
                                 const Icon(Icons.add_circle, color: blue),
                               ],
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 4),
                             Wrap(
-                              spacing: 8,
+                              spacing: 6,
                               runSpacing: 4,
                               children: [
                                 OutlinedButton.icon(
@@ -189,7 +188,7 @@ class SalesPage extends StatelessWidget {
                           ],
                         ),
                       ),
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(9),
                     );
                   },
                 ),
@@ -201,7 +200,7 @@ class SalesPage extends StatelessWidget {
           return Row(
             children: [
               Expanded(child: catalogue),
-              const SizedBox(width: 410, child: CartPanel(compact: false)),
+              const SizedBox(width: 365, child: CartPanel(compact: false)),
             ],
           );
         }
@@ -506,105 +505,6 @@ class _CameraScannerState extends State<CameraScanner> {
   );
 }
 
-Future<void> roomCalculator(BuildContext context) async {
-  final c = Get.find<ShopController>();
-  final products = c.data.products
-      .where((p) => p.active && p.hasPackConversion)
-      .toList();
-  if (products.isEmpty) return;
-  var p = products.first;
-  final length = TextEditingController(text: '5'),
-      width = TextEditingController(text: '4'),
-      waste = TextEditingController(text: '5');
-  RoomEstimate? estimate;
-  await safeDialog<void>(
-    context: context,
-    builder: (ctx) => StatefulBuilder(
-      builder: (ctx, set) => AlertDialog(
-        title: const Text('Tính gạch theo diện tích phòng'),
-        content: SizedBox(
-          width: 420,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                DropdownButtonFormField<String>(
-                  initialValue: p.id,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Chọn gạch'),
-                  items: products
-                      .map(
-                        (p) => DropdownMenuItem(
-                          value: p.id,
-                          child: Text(
-                            '${p.name} ${p.size}',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (id) => set(() {
-                    p = products.firstWhere((p) => p.id == id);
-                    estimate = null;
-                  }),
-                ),
-                const SizedBox(height: 16),
-                field(length, 'Chiều dài (m)', number: true),
-                field(width, 'Chiều rộng (m)', number: true),
-                field(waste, 'Hao hụt (%)', number: true),
-                OutlinedButton(
-                  onPressed: () => attempt(
-                    () async => set(
-                      () => estimate = RoomEstimate.calculate(
-                        decimal(length.text),
-                        decimal(width.text),
-                        decimal(waste.text),
-                        p.ratio,
-                      ),
-                    ),
-                  ),
-                  child: const Text('Tính số thùng'),
-                ),
-                if (estimate != null) ...[
-                  const SizedBox(height: 16),
-                  titleText('${estimate!.cartons} thùng', size: 24),
-                  Text(
-                    'Cần ${area(estimate!.requiredArea)} m² • Mua ${area(estimate!.purchasedArea)} m²\nDư ${area(estimate!.purchasedArea - estimate!.requiredArea)} m²',
-                  ),
-                  hint('Đã làm tròn lên thùng nguyên'),
-                ],
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Đóng'),
-          ),
-          FilledButton(
-            onPressed: () => attempt(() async {
-              final fresh = RoomEstimate.calculate(
-                decimal(length.text),
-                decimal(width.text),
-                decimal(waste.text),
-                p.ratio,
-              );
-              Navigator.pop(ctx);
-              await confirmProduct(context, p, suggested: fresh.purchasedArea);
-            }),
-            child: const Text('Xem và thêm vào giỏ'),
-          ),
-        ],
-      ),
-    ),
-  );
-  length.dispose();
-  width.dispose();
-  waste.dispose();
-}
-
 class CartPanel extends StatefulWidget {
   final bool compact;
   const CartPanel({required this.compact, super.key});
@@ -615,9 +515,12 @@ class CartPanel extends StatefulWidget {
 class _CartPanelState extends State<CartPanel> {
   final paid = TextEditingController(),
       shipping = TextEditingController(text: '0'),
+      discountInput = TextEditingController(),
       reason = TextEditingController();
   String customerId = '';
   bool hold = false;
+  bool showDiscount = false;
+  bool restoringForm = false;
   int? _seenDraftFormRevision;
 
   // Cache one Outbox check per requestId, rather than launching a new
@@ -652,12 +555,16 @@ class _CartPanelState extends State<CartPanel> {
   void initState() {
     super.initState();
     shipping.addListener(refresh);
+    paid.addListener(refresh);
+    discountInput.addListener(refresh);
+    discountInput.addListener(_saveFormDraft);
     paid.addListener(_saveFormDraft);
     shipping.addListener(_saveFormDraft);
     reason.addListener(_saveFormDraft);
   }
 
   void _saveFormDraft() {
+    if (restoringForm) return;
     if (!Get.isRegistered<ShopController>()) return;
     final shop = Get.find<ShopController>();
     if (!shop.isLive || shop.cart.isEmpty || shop.cartEditingLocked) return;
@@ -665,14 +572,39 @@ class _CartPanelState extends State<CartPanel> {
       customerId: customerId,
       shippingText: shipping.text,
       paidText: paid.text,
+      discountText: showDiscount ? discountInput.text : '',
       hold: hold,
       negativeReason: reason.text,
     );
   }
 
   void refresh() {
-    if (mounted) setState(() {});
+    if (mounted && !restoringForm) setState(() {});
   }
+
+  ({int ship, int discount, int total, int paid}) _saleAmounts(int subtotal) {
+    final ship = shipping.text.trim().isEmpty ? 0 : whole(shipping.text);
+    final discount = showDiscount && discountInput.text.trim().isNotEmpty
+        ? whole(discountInput.text)
+        : 0;
+    if (ship < 0 || discount < 0 || discount > subtotal) {
+      throw ArgumentError('Kiểm tra phí giao hàng và số tiền giảm giá.');
+    }
+    final total = subtotal - discount + ship;
+    final received = paid.text.trim().isEmpty ? total : whole(paid.text);
+    if (received < 0 || received > total) {
+      throw ArgumentError('Tiền đã thu phải từ 0 đến tổng thanh toán.');
+    }
+    return (ship: ship, discount: discount, total: total, paid: received);
+  }
+
+  String _saleSummary(
+    ({int ship, int discount, int total, int paid}) amounts,
+  ) =>
+      'Tổng ${money(amounts.total)} (gồm phí giao hàng ${money(amounts.ship)})\n'
+      '${amounts.discount > 0 ? 'Giảm giá: ${money(amounts.discount)}\n' : ''}'
+      'Thu ${money(amounts.paid)}\n'
+      'Còn phải thu: ${money(amounts.total - amounts.paid)}';
 
   @override
   void dispose() {
@@ -681,6 +613,7 @@ class _CartPanelState extends State<CartPanel> {
     reason.removeListener(_saveFormDraft);
     paid.dispose();
     shipping.dispose();
+    discountInput.dispose();
     reason.dispose();
     super.dispose();
   }
@@ -696,9 +629,16 @@ class _CartPanelState extends State<CartPanel> {
       _seenDraftFormRevision = c.draftFormRevision;
       customerId = c.draftCustomerId;
       hold = c.draftHold;
-      shipping.text = c.draftShippingText;
-      paid.text = c.draftPaidText;
-      reason.text = c.draftNegativeReason;
+      restoringForm = true;
+      try {
+        shipping.text = c.draftShippingText;
+        paid.text = c.draftPaidText;
+        reason.text = c.draftNegativeReason;
+        discountInput.text = c.draftDiscountText;
+        showDiscount = discountInput.text.isNotEmpty;
+      } finally {
+        restoringForm = false;
+      }
     }
     if (!c.isLive) return _buildCartBody(context, c, false);
 
@@ -722,10 +662,16 @@ class _CartPanelState extends State<CartPanel> {
       (l) => l.area > c.data.product(l.productId).available,
     );
     final ship = math.max(0, whole(shipping.text));
+    final enteredDiscount = showDiscount && discountInput.text.trim().isNotEmpty
+        ? whole(discountInput.text)
+        : 0;
+    final invalidDiscount = enteredDiscount < 0 || enteredDiscount > c.subtotal;
+    final total = c.subtotal + ship - (invalidDiscount ? 0 : enteredDiscount);
+    final received = paid.text.trim().isEmpty ? total : whole(paid.text);
     return Material(
       color: Colors.white,
       child: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(14),
         children: [
           Row(
             children: [
@@ -879,7 +825,7 @@ class _CartPanelState extends State<CartPanel> {
               const Expanded(child: Text('Tổng thanh toán')),
               Flexible(
                 child: Text(
-                  money(c.subtotal + ship),
+                  invalidDiscount ? '—' : money(total),
                   style: const TextStyle(
                     color: blue,
                     fontSize: 22,
@@ -890,7 +836,8 @@ class _CartPanelState extends State<CartPanel> {
             ],
           ),
           const SizedBox(height: 12),
-          hint('Gợi ý cọc 30%: ${money(((c.subtotal + ship) * .3).round())}'),
+          if (!invalidDiscount)
+            hint('Gợi ý cọc 30%: ${money((total * .3).round())}'),
           const SizedBox(height: 12),
           field(
             paid,
@@ -898,6 +845,32 @@ class _CartPanelState extends State<CartPanel> {
             moneyInput: true,
             enabled: !locked,
           ),
+          if (!invalidDiscount && received >= 0 && received <= total)
+            hint('Còn phải thu: ${money(total - received)}'),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: locked || c.cart.isEmpty
+                  ? null
+                  : () {
+                      setState(() => showDiscount = !showDiscount);
+                      if (!showDiscount) discountInput.clear();
+                      _saveFormDraft();
+                    },
+              icon: Icon(showDiscount ? Icons.close : Icons.discount_outlined),
+              label: Text(showDiscount ? 'Bỏ giảm giá' : 'Giảm giá'),
+            ),
+          ),
+          if (showDiscount) ...[
+            field(
+              discountInput,
+              'Số tiền giảm giá (đ)',
+              moneyInput: true,
+              enabled: !locked,
+            ),
+            if (invalidDiscount)
+              const Text('Giảm giá không được vượt tổng tiền hàng.'),
+          ],
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Giữ hàng / đặt cọc'),
@@ -1010,10 +983,12 @@ class _CartPanelState extends State<CartPanel> {
                               if (!mounted) return;
                               paid.clear();
                               shipping.text = '0';
+                              discountInput.clear();
                               reason.clear();
                               setState(() {
                                 customerId = '';
                                 hold = false;
+                                showDiscount = false;
                                 _checkedRequestId = null;
                                 _outboxStatusFuture = null;
                               });
@@ -1028,30 +1003,40 @@ class _CartPanelState extends State<CartPanel> {
                     onPressed: blocked
                         ? null
                         : () => attempt(() async {
-                            final shippingAmount = whole(shipping.text);
-                            final amount = paid.text.trim().isEmpty
-                                ? c.subtotal + shippingAmount
-                                : whole(paid.text);
+                            final subtotal = c.subtotal;
+                            final requestId = c.requestId;
+                            final amounts = _saleAmounts(subtotal);
                             if (!await confirm(
                               context,
                               hold
                                   ? 'Xác nhận giữ hàng?'
                                   : 'Xác nhận chốt đơn?',
-                              'Tổng ${money(c.subtotal + shippingAmount)}\n'
-                              'Thu ${money(amount)}'
+                              '${_saleSummary(amounts)}'
                               '${exceeds ? '\nBán âm: ${reason.text}' : ''}',
                             )) {
                               return;
                             }
+                            if (!context.mounted) return;
+                            if (c.subtotal != subtotal ||
+                                c.requestId != requestId) {
+                              throw StateError(
+                                'Giỏ hàng đã thay đổi. Kiểm tra lại trước khi xác nhận.',
+                              );
+                            }
                             // Checkout performs its own Outbox check again.
                             final order = await c.checkout(
                               customerId: customerId,
-                              paid: amount,
-                              ship: shippingAmount,
+                              paid: amounts.paid,
+                              ship: amounts.ship,
+                              discount: amounts.discount,
                               hold: hold,
                               negativeReason: reason.text.trim(),
                             );
+                            if (!mounted) return;
                             paid.clear();
+                            shipping.text = '0';
+                            discountInput.clear();
+                            setState(() => showDiscount = false);
                             reason.clear();
                             if (context.mounted) {
                               await showOrder(context, order);
@@ -1078,31 +1063,25 @@ class _CartPanelState extends State<CartPanel> {
                                   'Chưa kết nối Outbox. Không thể lưu đơn offline.',
                                 );
                               }
-                              if (customerId.trim().isEmpty) {
-                                throw ArgumentError(
-                                  'Chọn khách hàng trước khi lưu đơn offline.',
-                                );
-                              }
-                              final shippingAmount = whole(shipping.text);
-                              final amount = paid.text.trim().isEmpty
-                                  ? c.subtotal + shippingAmount
-                                  : whole(paid.text);
-                              if (shippingAmount < 0 || amount < 0) {
-                                throw ArgumentError(
-                                  'Tiền thanh toán và phí giao hàng không được âm.',
-                                );
-                              }
+                              final subtotal = c.subtotal;
+                              final requestId = c.requestId;
+                              final amounts = _saleAmounts(subtotal);
 
                               final accepted = await confirm(
                                 context,
                                 'Lưu đơn offline trên máy?',
                                 'Đơn sẽ chỉ được lưu vào SQLite trên thiết bị này. '
                                     'Chưa tạo hóa đơn Firebase, chưa trừ tồn kho trên server '
-                                    'và chưa tự động đồng bộ.\n'
-                                    'Tổng ${money(c.subtotal + shippingAmount)}\n'
-                                    'Tiền ghi nhận ${money(amount)}',
+                                    'cho đến khi máy chủ xác nhận. App sẽ thử gửi khi có mạng.\n'
+                                    '${_saleSummary(amounts)}',
                               );
                               if (!accepted || !context.mounted) return;
+                              if (c.subtotal != subtotal ||
+                                  c.requestId != requestId) {
+                                throw StateError(
+                                  'Giỏ hàng đã thay đổi. Kiểm tra lại trước khi xác nhận.',
+                                );
+                              }
 
                               // This controller method atomically guards cart
                               // edits while the Outbox write is in progress.
@@ -1110,12 +1089,18 @@ class _CartPanelState extends State<CartPanel> {
                               await c.queueOfflineCheckout(
                                 outbox: Get.find<OutboxRepository>(),
                                 customerId: customerId,
-                                paid: amount,
-                                ship: shippingAmount,
+                                paid: amounts.paid,
+                                ship: amounts.ship,
+                                discount: amounts.discount,
                                 hold: hold,
                                 negativeReason: reason.text.trim(),
                               );
                               if (mounted) _refreshOutboxStatus(c);
+                              if (Get.isRegistered<AutoSyncCoordinator>()) {
+                                Get.find<AutoSyncCoordinator>()
+                                    .checkNow()
+                                    .ignore();
+                              }
                             }),
                       icon: const Icon(Icons.save_outlined),
                       label: const Text('Lưu đơn offline'),
@@ -1129,21 +1114,6 @@ class _CartPanelState extends State<CartPanel> {
                 ],
               );
             },
-          ),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: c.cart.isEmpty
-                ? null
-                : () => attempt(
-                    () => PrintService.quote(
-                      c.data,
-                      c.cart,
-                      ship,
-                      demo: !c.isLive,
-                    ),
-                  ),
-            icon: const Icon(Icons.picture_as_pdf_outlined),
-            label: const Text('Báo giá PDF'),
           ),
         ],
       ),
@@ -1184,6 +1154,9 @@ Future<void> showOrder(BuildContext context, Json original) => safeDialog<void>(
                   ),
                 )),
                 const Divider(),
+                if ((o['discount'] as int? ?? 0) > 0)
+                  Text('Giảm giá: ${money(o['discount'])}'),
+                Text('Phí giao hàng: ${money(o['ship'] ?? 0)}'),
                 Text('Tổng: ${money(o['total'])}'),
                 Text('Đã thu: ${money(ShopData.collected(o))}'),
                 Text(
@@ -1228,8 +1201,7 @@ Future<void> showOrder(BuildContext context, Json original) => safeDialog<void>(
               icon: const Icon(Icons.picture_as_pdf_outlined),
               label: const Text('Xem / in PDF'),
             ),
-          if (o['status'] != 'Đã hủy' &&
-              ShopData.collected(o) < (o['total'] as int))
+          if (c.data.collectible(o) > 0)
             TextButton(
               onPressed: () => collectPayment(ctx, o),
               child: const Text('Ghi nhận trả tiền'),

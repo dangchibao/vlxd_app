@@ -103,6 +103,7 @@ void main() {
       customerId: 'KH001',
       paid: 1000000,
       ship: 150000,
+      discount: 25000,
     );
 
     expect(id, 'request-offline-001');
@@ -121,6 +122,7 @@ void main() {
     expect(command.customerId, 'KH001');
     expect(command.paid, 1000000);
     expect(command.ship, 150000);
+    expect(command.discount, 25000);
     expect(command.lines.single.area, 144000);
     expect(command.lines.single.note, 'Giao buổi sáng');
 

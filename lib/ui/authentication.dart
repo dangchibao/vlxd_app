@@ -29,7 +29,7 @@ class FirebaseGate extends StatelessWidget {
               ),
             );
           }
-          if (shop.syncError != null) {
+          if (shop.syncError != null && !shop.showingOfflineSnapshot) {
             return Scaffold(
               appBar: AppBar(title: const Text('Kết nối cửa hàng')),
               body: Center(

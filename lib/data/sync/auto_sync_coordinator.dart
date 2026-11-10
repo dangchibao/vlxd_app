@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:drift/drift.dart';
+
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../controllers/shop_controller.dart';
@@ -7,6 +9,7 @@ import 'firebase_request_verifier.dart';
 import 'auto_recovery_service.dart';
 import 'offline_checkout_command.dart';
 import 'offline_checkout_preflight.dart';
+import 'offline_book_operation.dart';
 import 'outbox_reconciler.dart';
 import 'outbox_repository.dart';
 import 'sync_engine.dart';
@@ -14,7 +17,8 @@ import 'sync_runtime.dart';
 
 /// A conservative foreground-only synchronizer for checkout.v1.
 ///
-/// - Never retries a previously claimed operation (attempts > 0).
+/// - May retry a confirmed-absent temporary failure, max 3 attempts.
+/// - Never retries uncertain/permanent results or without server verification.
 /// - Never automatically approves an order flagged for negative stock.
 /// - Requires the same logged-in user AND loaded shop session as the creator.
 /// - Requires an authoritative server read saying requestId is absent.
@@ -51,15 +55,38 @@ class AutoSyncCoordinator {
     required this.runtime,
   });
 
+  static bool canRetryTemporary({
+    required OfflineCheckoutCommand command,
+    required String operationId,
+    required String status,
+    required String? lastError,
+    required int attempts,
+    required String actorId,
+  }) {
+    return status == 'failed' &&
+        attempts >= 1 &&
+        attempts < 3 &&
+        (lastError?.startsWith('temporary:') ?? false) &&
+        command.requestId == operationId &&
+        command.actorId == actorId &&
+        OfflineCheckoutPreflight.isValid(command) &&
+        command.negativeReason.trim().isEmpty;
+  }
+
   static bool canAttempt({
     required OfflineCheckoutCommand command,
     required String operationId,
     required String status,
     required int attempts,
     required String actorId,
+    String? lastError,
   }) {
     return status == 'pending' &&
-        attempts == 0 &&
+        (attempts == 0 ||
+            lastError == 'manual-retry-verified' ||
+            (attempts >= 1 &&
+                attempts < 3 &&
+                lastError == 'auto-retry-verified')) &&
         command.requestId == operationId &&
         command.actorId == actorId &&
         OfflineCheckoutPreflight.isValid(command) &&
@@ -77,6 +104,62 @@ class AutoSyncCoordinator {
     unawaited(checkNow());
   }
 
+  Future<String> reviewAndRetry(String id) async {
+    final uid = auth.currentUser?.uid;
+    if (uid == null || shop.actor?.id != uid) {
+      throw StateError('Phiên đồng bộ không hợp lệ.');
+    }
+    final row = await outbox.getById(id);
+    if (row == null ||
+        row.status != 'failed' ||
+        offlineOperationOwner(row) != uid) {
+      throw StateError('Giao dịch đã thay đổi. Hãy mở lại danh sách.');
+    }
+    if (row.operationType == 'checkout.v1' &&
+        OfflineCheckoutCommand.decode(row.payloadJson).negativeReason
+            .trim()
+            .isNotEmpty) {
+      throw StateError('Đơn có yêu cầu bán âm cần đối chiếu với chủ cửa hàng.');
+    }
+    final result = await reconciler.reconcile(id);
+    if (result == ReconcileResult.confirmed) {
+      return 'Máy chủ đã xác nhận giao dịch.';
+    }
+    if (result != ReconcileResult.notFound) {
+      throw StateError(
+        'Chưa xác minh được trên máy chủ. Hãy thử lại khi có mạng.',
+      );
+    }
+    if (auth.currentUser?.uid != uid ||
+        shop.actor?.id != uid ||
+        !await outbox.requeueReviewed(row)) {
+      throw StateError('Giao dịch hoặc phiên đăng nhập đã thay đổi.');
+    }
+    await checkNow();
+    return 'Đã đưa giao dịch vào hàng đợi.';
+  }
+
+  Future<void> cancelReviewed(String id) async {
+    final uid = auth.currentUser?.uid;
+    final row = await outbox.getById(id);
+    if (uid == null ||
+        shop.actor?.id != uid ||
+        row == null ||
+        offlineOperationOwner(row) != uid ||
+        !OutboxRepository.canCancel(row)) {
+      throw StateError('Giao dịch đã thay đổi hoặc chưa thể bỏ an toàn.');
+    }
+    if (row.attempts > 0 &&
+        await reconciler.reconcile(id) != ReconcileResult.notFound) {
+      throw StateError('Chưa xác minh được giao dịch vắng mặt trên máy chủ.');
+    }
+    if (auth.currentUser?.uid != uid ||
+        shop.actor?.id != uid ||
+        !await outbox.cancelReviewed(row)) {
+      throw StateError('Giao dịch hoặc phiên đăng nhập đã thay đổi.');
+    }
+  }
+
   Future<void> checkNow() async {
     if (_running) return;
     final user = auth.currentUser;
@@ -87,8 +170,15 @@ class AutoSyncCoordinator {
       // Initialize once per app process. Interrupted 'syncing' becomes
       // quarantined 'failed', never pending.
       if (!_initialized) {
-        await runtime.initialize();
+        await runtime.initialize(
+          actorId: user.uid,
+          staleAfter: const Duration(minutes: 3),
+        );
         _initialized = true;
+      } else {
+        await outbox.quarantineInterrupted(
+          staleAfter: const Duration(minutes: 3),
+        );
       }
 
       // Read-only automatic recovery for interrupted and uncertain checkouts.
@@ -104,32 +194,34 @@ class AutoSyncCoordinator {
           return;
         }
 
-        final pending = await outbox.getPending();
-        if (pending.isEmpty) return;
-        final next = pending.first;
-
-        // Strictly check the *oldest* operation because SyncEngine
-        // claims that same operation. Don't skip another user's order.
-        if (next.operationType != 'checkout.v1' || next.attempts != 0) return;
-        late final OfflineCheckoutCommand command;
-        try {
-          command = OfflineCheckoutCommand.decode(next.payloadJson);
-        } catch (_) {
+        final pending = (await outbox.getPending()).where((row) {
+          if (offlineOperationOwner(row) != user.uid) return false;
+          if (OfflineBookOperation.supports(row.operationType)) {
+            return row.attempts == 0 ||
+                row.lastError == 'auto-retry-verified' ||
+                row.lastError == 'manual-retry-verified';
+          }
+          return canAttempt(
+            command: OfflineCheckoutCommand.decode(row.payloadJson),
+            operationId: row.id,
+            status: row.status,
+            attempts: row.attempts,
+            actorId: user.uid,
+            lastError: row.lastError,
+          );
+        }).firstOrNull;
+        if (pending == null) {
+          // Chỉ xử lý bản ghi failed do LỖI MẠNG tạm thời.
+          // Đọc server trước khi thay đổi trạng thái. Mỗi nhịp tối đa
+          // một lần khôi phục; uncertain/permanent không bao giờ retry.
+          await _recoverOneTemporaryFailure(user.uid);
           return;
         }
-        if (!canAttempt(
-          command: command,
-          operationId: next.id,
-          status: next.status,
-          attempts: next.attempts,
-          actorId: user.uid,
-        )) {
-          return;
-        }
+        final next = pending;
 
         // Don't auto-send if the server cannot AUTHORITATIVELY confirm
         // that this request doesn't exist. Firebase cache is not enough.
-        final verification = await verifier.verify(next.id);
+        final verification = await reconciler.verifyOperation(next);
         if (verification.status == RequestVerificationStatus.confirmed) {
           await reconciler.reconcile(next.id);
           continue;
@@ -138,7 +230,10 @@ class AutoSyncCoordinator {
 
         // The dispatcher checks identity, price, permissions and server
         // requestId again within its own protected transaction path.
-        final result = await engine.processNext();
+        if (auth.currentUser?.uid != user.uid || shop.actor?.id != user.uid) {
+          return;
+        }
+        final result = await engine.processNext(expectedId: next.id);
         if (result != SyncAttemptResult.synced) return;
       }
     } catch (_) {
@@ -146,6 +241,54 @@ class AutoSyncCoordinator {
       // Pending orders stay pending; next poll must verify on server first.
     } finally {
       _running = false;
+    }
+  }
+
+  Future<void> _recoverOneTemporaryFailure(String actorId) async {
+    final table = outbox.db.pendingOperations;
+    final failed =
+        await (outbox.db.select(table)
+              ..where(
+                (t) =>
+                    t.status.equals('failed') & t.lastError.like('temporary:%'),
+              )
+              ..orderBy([(t) => OrderingTerm.asc(t.createdAt)])
+              ..limit(20))
+            .get();
+    for (final row in failed) {
+      if (offlineOperationOwner(row) != actorId ||
+          row.attempts < 1 ||
+          row.attempts >= 3) {
+        continue;
+      }
+      if (row.operationType == 'checkout.v1' &&
+          !canRetryTemporary(
+            command: OfflineCheckoutCommand.decode(row.payloadJson),
+            operationId: row.id,
+            status: row.status,
+            lastError: row.lastError,
+            attempts: row.attempts,
+            actorId: actorId,
+          )) {
+        continue;
+      }
+      if (auth.currentUser?.uid != actorId ||
+          shop.actor?.id != actorId ||
+          !shop.isLive) {
+        return;
+      }
+      final verification = await reconciler.verifyOperation(row);
+      if (verification.status == RequestVerificationStatus.confirmed) {
+        await reconciler.reconcile(row.id);
+        return;
+      }
+      if (verification.status != RequestVerificationStatus.notFound) return;
+      await outbox.requeueVerifiedTemporary(
+        id: row.id,
+        expectedAttempts: row.attempts,
+        expectedError: row.lastError!,
+      );
+      return;
     }
   }
 

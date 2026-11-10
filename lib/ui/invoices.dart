@@ -255,7 +255,7 @@ class _InvoicesPageState extends State<InvoicesPage> {
           hint(
             'Lấy trực tiếp từ đơn đã bán • Bấm một hóa đơn để xem sản phẩm và in PDF',
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
           filters(),
           if (!filter.valid)
             const Padding(
@@ -370,6 +370,14 @@ class InvoicePdfPage extends StatelessWidget {
             : PdfPreview(
                 key: ValueKey(jsonEncode(order)),
                 pdfFileName: 'hoa-don-$orderId.pdf',
+                // The PDF preview toolbar must contrast with its action icons.
+                // Keep native Print/Share behavior unchanged across platforms.
+                actionBarTheme: const PdfActionBarTheme(
+                  backgroundColor: Color(0xFFF2F6FC),
+                  iconColor: Color(0xFF0759BE),
+                  height: 58,
+                  elevation: 1,
+                ),
                 canChangeOrientation: false,
                 canChangePageFormat: false,
                 canDebug: false,

@@ -108,29 +108,6 @@ class CartLine {
 String mergeLineNotes(Iterable<String> notes) =>
     notes.map((v) => v.trim()).where((v) => v.isNotEmpty).toSet().join('\n');
 
-class RoomEstimate {
-  final int requiredArea, cartons, purchasedArea;
-  const RoomEstimate(this.requiredArea, this.cartons, this.purchasedArea);
-  static RoomEstimate calculate(
-    double length,
-    double width,
-    double waste,
-    int ratio,
-  ) {
-    if (![length, width, waste].every((v) => v.isFinite) ||
-        length <= 0 ||
-        width <= 0 ||
-        waste < 0 ||
-        waste > 100 ||
-        ratio <= 0) {
-      throw ArgumentError('Nhập kích thước dương, hao hụt từ 0 đến 100%.');
-    }
-    final required = (length * width * (1 + waste / 100) * 10000).ceil();
-    final cartons = (required + ratio - 1) ~/ ratio;
-    return RoomEstimate(required, cartons, cartons * ratio);
-  }
-}
-
 class ShopData {
   factory ShopData.empty() => ShopData(
     products: [],
@@ -295,6 +272,8 @@ class ShopData {
       'id': lotId,
       'date': date.toIso8601String(),
       'area': area,
+      // Giu nguyen so luong nhap ban dau khi ban hang tru ton kho.
+      'initialArea': area,
       'reserved': 0,
       'cost': cost,
       'ratio': p.ratio,
@@ -304,6 +283,9 @@ class ShopData {
       'area': area,
       'type': 'Nhập kho',
       'lot': lotId,
+      // Chot gia nhap tai thoi diem ghi nhan phieu nhap.
+      'cost': cost,
+      'date': date.toIso8601String(),
       'actor': actor.id,
       'at': DateTime.now().toUtc().toIso8601String(),
     });
@@ -324,6 +306,7 @@ class ShopData {
     required bool hold,
     required Actor actor,
     String negativeReason = '',
+    int discount = 0,
   }) {
     actor.requireAccess();
     final existing = orders.where((o) => o['requestId'] == requestId);
@@ -366,6 +349,10 @@ class ShopData {
       }
       subtotal += lineMoney(entry.value, p.price);
     }
+    if (discount < 0 || discount > subtotal) {
+      throw ArgumentError('Giảm giá phải từ 0 đến tổng tiền hàng.');
+    }
+    subtotal -= discount;
     final total = subtotal + ship;
     if (total > 9000000000000) {
       throw ArgumentError('Giá trị đơn vượt giới hạn một phiếu.');
@@ -440,6 +427,7 @@ class ShopData {
       'customerId': customerId,
       'lines': snapshots,
       'subtotal': subtotal,
+      if (discount > 0) 'discount': discount,
       'ship': ship,
       'total': total,
       'status': hold ? 'Giữ hàng' : 'Đã bán',
@@ -667,6 +655,14 @@ class ShopData {
     return book.receivable - book.received;
   }
 
+  /// The order balance and the adjusted customer book both bound a receipt.
+  int collectible(Json order) {
+    if (order['status'] == 'Đã hủy') return 0;
+    final due = (order['total'] as int) - collected(order);
+    final customerId = order['customerId'] as String;
+    return max(0, customerId.isEmpty ? due : min(due, debt(customerId)));
+  }
+
   void _checkBookChange(String customerId, int totalDelta, int paidDelta) {
     if (customerId.isEmpty) return;
     final before = customerBook(customerId);
@@ -706,6 +702,14 @@ class ShopData {
     if (before.receivable != expectedReceivable ||
         before.received != expectedReceived) {
       throw StateError('Sổ công nợ vừa thay đổi. Mở lại trước khi sửa.');
+    }
+    final recordedReceipts =
+        before.received - (customer['receivedAdjustment'] as int? ?? 0);
+    if (received < recordedReceipts) {
+      throw StateError(
+        'Đã thu không được thấp hơn tổng phiếu thu hợp lệ. '
+        'Nếu ghi nhầm tiền, hãy sửa lần thu trên đúng đơn hàng.',
+      );
     }
     customer['receivableAdjustment'] =
         (customer['receivableAdjustment'] as int? ?? 0) +

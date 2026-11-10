@@ -24,7 +24,28 @@ class PendingOperations extends Table {
 
 @DriftDatabase(tables: [PendingOperations])
 class AppDatabase extends _$AppDatabase {
-  AppDatabase() : super(driftDatabase(name: 'vlxd_bayhai_local'));
+  AppDatabase() : super(_open('vlxd_bayhai_local'));
+
+  // Tách tuyệt đối Outbox thử nghiệm khỏi Outbox cửa hàng thật.
+  AppDatabase.forEmulator() : super(_open('vlxd_bayhai_emulator_test'));
+
+  static QueryExecutor _open(String name) => driftDatabase(
+    name: name,
+    web: DriftWebOptions(
+      sqlite3Wasm: Uri.base.resolve('sqlite3.wasm'),
+      driftWorker: Uri.base.resolve('drift_worker.js'),
+      onResult: (result) {
+        if ([
+          'inMemory',
+          'unsafeIndexedDb',
+        ].contains(result.chosenImplementation.name)) {
+          throw StateError(
+            'Trình duyệt không cung cấp bộ nhớ lưu đơn bền vững.',
+          );
+        }
+      },
+    ),
+  );
 
   // Dùng database riêng cho kiểm thử.
   AppDatabase.forTesting(super.executor);

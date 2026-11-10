@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'request_verification_logic.dart';
+import 'offline_book_operation.dart';
 
 enum RequestVerificationStatus { confirmed, notFound, uncertain }
 
@@ -17,6 +18,35 @@ class FirebaseRequestVerifier {
   final String storeId;
 
   FirebaseRequestVerifier(this.firestore, {this.storeId = 'bay-hai'});
+
+  Future<RequestVerification> verifyBook(OfflineBookOperation command) async {
+    try {
+      final doc = await firestore
+          .doc('stores/$storeId/audit/${command.markerId}')
+          .get(const GetOptions(source: Source.server));
+      if (!doc.exists) {
+        return const RequestVerification(
+          status: RequestVerificationStatus.notFound,
+        );
+      }
+      final value = doc.data()?['value'];
+      if (value is Map &&
+          value['id'] == command.markerId &&
+          value['actor'] == command.actorId &&
+          value['operationType'] == command.type &&
+          value['operationPayload'] == command.encode()) {
+        return RequestVerification(
+          status: RequestVerificationStatus.confirmed,
+          orderId: command.target,
+        );
+      }
+    } catch (_) {
+      // An unavailable server is not evidence that an operation is absent.
+    }
+    return const RequestVerification(
+      status: RequestVerificationStatus.uncertain,
+    );
+  }
 
   Future<RequestVerification> verify(String requestId) async {
     // Kiểm tra requestId trước khi truy vấn Firebase.

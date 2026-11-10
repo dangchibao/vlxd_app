@@ -110,7 +110,7 @@ void main() {
   );
 
   testWidgets(
-    'Debt detail renders actual receipts and keeps collection action',
+    'Collecting the remaining shipping charge clears the order and customer debt',
     (tester) async {
       Get.testMode = true;
       tester.view.physicalSize = const Size(1600, 1100);
@@ -122,8 +122,8 @@ void main() {
         requestId: 'debt-view',
         lines: [const CartLine('PR6060VD', 144000)],
         customerId: 'KH001',
-        paid: 1000000,
-        ship: 0,
+        paid: 3456000,
+        ship: 50000,
         hold: false,
         actor: const Actor('admin', Role.owner),
       );
@@ -134,8 +134,65 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Lịch sử thanh toán'), findsOneWidget);
       expect(find.text('Ghi nhận trả tiền'), findsOneWidget);
-      expect(find.text(money(1000000)), findsWidgets);
+      expect(c.data.debt('KH001'), 50000);
+      final collect = find.text('Ghi nhận trả tiền');
+      await tester.ensureVisible(collect);
+      await tester.tap(collect);
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Phí giao hàng đã tính: 50.000 đ'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Xác nhận đã thu'));
+      await tester.pumpAndSettle();
+      expect(c.data.debt('KH001'), 0);
+      expect(find.text('Đã trả'), findsWidgets);
+      expect(collect, findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets('Customer detail lists have independent pages', (tester) async {
+    Get.testMode = true;
+    tester.view.physicalSize = const Size(1600, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final data = ShopData.sample();
+    const actor = Actor('admin', Role.owner);
+    for (var i = 1; i <= 11; i++) {
+      data.checkout(
+        requestId: 'paged-$i',
+        lines: [const CartLine('PR6060VD', 14400)],
+        customerId: 'KH001',
+        paid: 345600,
+        ship: 0,
+        hold: false,
+        actor: actor,
+      );
+      data.log(actor, 'Điều chỉnh sổ công nợ', 'KH001', 'Lý do số $i');
+    }
+    Get.put(ShopController(MemoryRepository(), data))
+      ..enterDemo(Role.owner)
+      ..navigate(5);
+    await tester.pumpWidget(const BayHaiApp());
+    await tester.pumpAndSettle();
+
+    Future<void> next(String label) async {
+      final button = find.byTooltip('$label — Trang sau');
+      await tester.ensureVisible(button);
+      await tester.pumpAndSettle();
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+    }
+
+    await next('Lịch sử thanh toán');
+    expect(find.text('2 / 2'), findsOneWidget);
+    expect(find.text('DH-1 • Đã bán'), findsNothing);
+    await next('Đơn hàng của khách');
+    expect(find.text('DH-1 • Đã bán'), findsOneWidget);
+    expect(find.text('Lý do số 1'), findsNothing);
+    await next('Điều chỉnh sổ công nợ');
+    expect(find.text('Lý do số 1'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

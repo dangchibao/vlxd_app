@@ -25,18 +25,31 @@ class ProductPicture extends StatelessWidget {
               ),
             ),
             child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.grid_on, size: 32, color: Colors.white70),
-                  Text(
-                    product.size,
-                    style: const TextStyle(
-                      color: ink,
-                      fontWeight: FontWeight.w600,
-                    ),
+              // Anh dai dien thu gon 66x66: co gian noi dung de tranh
+              // RenderFlex overflow khi ten kich thuoc dai.
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.grid_on,
+                        size: 32,
+                        color: Colors.white70,
+                      ),
+                      Text(
+                        product.size,
+                        maxLines: 1,
+                        style: const TextStyle(
+                          color: ink,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
@@ -68,8 +81,7 @@ int? latestRecordedLotCost(Product product) {
 Widget productLotCostBadge(Product product) {
   final cost = latestRecordedLotCost(product);
   return Container(
-    width: double.infinity,
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
     decoration: BoxDecoration(
       color: const Color(0xFFFFF2D6),
       borderRadius: BorderRadius.circular(8),
@@ -106,7 +118,7 @@ class ProductsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = Get.find<ShopController>();
     return ListView(
-      padding: const EdgeInsets.all(24),
+      padding: vlxdPagePadding(context),
       children: [
         Wrap(
           spacing: 12,
@@ -114,7 +126,7 @@ class ProductsPage extends StatelessWidget {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             SizedBox(
-              width: math.min(420, MediaQuery.sizeOf(context).width - 48),
+              width: math.min(420, MediaQuery.sizeOf(context).width - 32),
               child: TextField(
                 decoration: const InputDecoration(
                   hintText: 'Tìm mã, tên gạch, nhà cung cấp',
@@ -150,7 +162,7 @@ class ProductsPage extends StatelessWidget {
               )
               .toList(),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 12),
         if (c.visibleProducts.isEmpty)
           const EmptyState(
             'Không tìm thấy sản phẩm',
@@ -159,7 +171,7 @@ class ProductsPage extends StatelessWidget {
           ),
         ...c.visibleProducts.map(
           (p) => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.only(bottom: 8),
             child: panel(
               LayoutBuilder(
                 builder: (context, box) => Column(
@@ -167,11 +179,11 @@ class ProductsPage extends StatelessWidget {
                     Row(
                       children: [
                         SizedBox(
-                          width: 64,
-                          height: 72,
+                          width: 66,
+                          height: 66,
                           child: ProductPicture(p),
                         ),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -184,25 +196,39 @@ class ProductsPage extends StatelessWidget {
                                 ),
                               ),
                               hint('${p.code} • ${p.size} • ${p.supplier}'),
-                              const SizedBox(height: 8),
-                              productLotCostBadge(p),
-                              const SizedBox(height: 8),
-                              const Text(
-                                'GIÁ BÁN',
-                                style: TextStyle(
-                                  color: blue,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w800,
-                                ),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                spacing: 12,
+                                runSpacing: 6,
+                                children: [
+                                  productLotCostBadge(p),
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Text(
+                                        'GIÁ BÁN',
+                                        style: TextStyle(
+                                          color: blue,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      Text(
+                                        '${money(p.price)} / ${p.unit}',
+                                        style: const TextStyle(
+                                          color: blue,
+                                          fontSize: 17,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ),
-                              Text(
-                                '${money(p.price)} / ${p.unit}',
-                                style: const TextStyle(
-                                  color: blue,
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
+                              const SizedBox(height: 3),
                               hint(
                                 'Còn ${area(p.available)} ${p.unit}${p.hasPackConversion ? ' • ${NumberFormat('0.##', 'vi').format(p.available / p.ratio)} thùng' : ''}',
                               ),

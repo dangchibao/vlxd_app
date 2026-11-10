@@ -56,6 +56,17 @@ void main() {
         );
 
         expect(c.cart, hasLength(1));
+        final discount = width == 390 ? 25000 : 0;
+        final subtotal = c.subtotal;
+        if (discount > 0) {
+          expect(input('Số tiền giảm giá (đ)'), findsNothing);
+          await tester.ensureVisible(find.text('Giảm giá'));
+          await tester.tap(find.text('Giảm giá'));
+          await tester.pumpAndSettle();
+          await tester.enterText(input('Số tiền giảm giá (đ)'), '$discount');
+          await tester.pump();
+          expect(find.text(money(subtotal + 50000 - discount)), findsOneWidget);
+        }
 
         // Opening the list proves the saved customer is also available for later selection.
         await tester.tap(selector);
@@ -69,6 +80,9 @@ void main() {
         await tester.pumpAndSettle();
         final order = c.data.orders.single;
         expect(order['customerId'], customer['id']);
+        expect(order['discount'] ?? 0, discount);
+        expect(order['ship'], 50000);
+        expect(order['total'], subtotal + 50000 - discount);
         expect(ShopData.collected(order), order['total']);
         expect(find.text('Khách hàng: Khách mới chị Hương'), findsOneWidget);
         expect(c.data.debt(customer['id']), 0);

@@ -38,6 +38,7 @@ class CartDraftRepository {
     String customerId = '',
     String shippingText = '0',
     String paidText = '',
+    String discountText = '',
     bool hold = false,
     String negativeReason = '',
   }) {
@@ -52,6 +53,7 @@ class CartDraftRepository {
       'customerId': customerId,
       'shippingText': shippingText,
       'paidText': paidText,
+      if (discountText.isNotEmpty) 'discountText': discountText,
       'hold': hold,
       'negativeReason': negativeReason,
     });

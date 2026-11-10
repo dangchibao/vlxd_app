@@ -3,6 +3,22 @@ import 'package:drift/drift.dart';
 import '../local/app_database.dart';
 
 import 'offline_checkout_command.dart';
+import 'offline_book_operation.dart';
+
+String? offlineOperationOwner(PendingOperation row) {
+  try {
+    if (OfflineBookOperation.supports(row.operationType)) {
+      return OfflineBookOperation.decode(row).actorId;
+    }
+    if (row.operationType == 'checkout.v1') {
+      final command = OfflineCheckoutCommand.decode(row.payloadJson);
+      if (command.requestId == row.id) return command.actorId;
+    }
+  } catch (_) {
+    // Corrupt entries must not be dispatched or exposed to another user.
+  }
+  return null;
+}
 
 class OutboxRepository {
   final AppDatabase db;
@@ -21,6 +37,46 @@ class OutboxRepository {
     return (db.select(
       db.pendingOperations,
     )..where((t) => t.id.equals(requestId))).getSingleOrNull();
+  }
+
+  Future<bool> requeueReviewed(PendingOperation expected) async {
+    if (expected.status != 'failed') return false;
+    final count =
+        await (db.update(db.pendingOperations)..where(
+              (t) =>
+                  t.id.equals(expected.id) &
+                  t.status.equals('failed') &
+                  t.attempts.equals(expected.attempts) &
+                  t.payloadJson.equals(expected.payloadJson),
+            ))
+            .write(
+              const PendingOperationsCompanion(
+                status: Value('pending'),
+                lastError: Value('manual-retry-verified'),
+              ),
+            );
+    return count == 1;
+  }
+
+  static bool canCancel(PendingOperation row) =>
+      (row.status == 'pending' && row.attempts == 0) ||
+      (row.status == 'failed' &&
+          row.lastError?.startsWith('permanent:') == true);
+
+  Future<bool> cancelReviewed(PendingOperation expected) async {
+    if (!canCancel(expected)) return false;
+    final count =
+        await (db.update(db.pendingOperations)..where(
+              (t) =>
+                  t.id.equals(expected.id) &
+                  t.status.equals(expected.status) &
+                  t.attempts.equals(expected.attempts) &
+                  t.payloadJson.equals(expected.payloadJson),
+            ))
+            .write(
+              const PendingOperationsCompanion(status: Value('cancelled')),
+            );
+    return count == 1;
   }
 
   /// Lưu lệnh checkout vào Outbox.
@@ -109,12 +165,49 @@ class OutboxRepository {
     );
   }
 
+  /// Chỉ mở lại một lần gửi lỗi tạm thời ĐÃ được máy chủ kiểm tra là
+  /// chưa tồn tại. Caller phải tự xác minh requestId bằng Source.server.
+  /// Không chạm vào đơn uncertain / permanent và không xóa dữ liệu.
+  Future<bool> requeueVerifiedTemporary({
+    required String id,
+    required int expectedAttempts,
+    required String expectedError,
+    int maxAttempts = 3,
+  }) async {
+    if (!expectedError.startsWith('temporary:') ||
+        expectedAttempts < 1 ||
+        expectedAttempts >= maxAttempts) {
+      return false;
+    }
+    final changed =
+        await (db.update(db.pendingOperations)..where(
+              (t) =>
+                  t.id.equals(id) &
+                  t.status.equals('failed') &
+                  t.attempts.equals(expectedAttempts) &
+                  t.lastError.equals(expectedError),
+            ))
+            .write(
+              const PendingOperationsCompanion(
+                status: Value('pending'),
+                lastError: Value('auto-retry-verified'),
+              ),
+            );
+    return changed == 1;
+  }
+
   // Lấy một thao tác chờ và chuyển sang trạng thái đang đồng bộ.
-  Future<PendingOperation?> claimNext() async {
+  Future<PendingOperation?> claimNext({String? expectedId}) async {
     return db.transaction(() async {
       final items =
           await (db.select(db.pendingOperations)
-                ..where((t) => t.status.equals('pending'))
+                ..where(
+                  (t) =>
+                      t.status.equals('pending') &
+                      (expectedId == null
+                          ? const Constant(true)
+                          : t.id.equals(expectedId)),
+                )
                 ..orderBy([
                   (t) => OrderingTerm.asc(t.createdAt),
                   (t) => OrderingTerm.asc(t.id),
@@ -134,7 +227,9 @@ class OutboxRepository {
                 PendingOperationsCompanion(
                   status: const Value('syncing'),
                   attempts: Value(item.attempts + 1),
-                  lastError: const Value(null),
+                  lastError: Value(
+                    'claim:${DateTime.now().millisecondsSinceEpoch}',
+                  ),
                 ),
               );
 
@@ -201,16 +296,39 @@ class OutboxRepository {
 
   /// Cách ly các thao tác bị gián đoạn.
   /// Không tự động gửi lại khi chưa xác minh Firebase.
-  Future<int> quarantineInterrupted() async {
-    return (db.update(
-      db.pendingOperations,
-    )..where((t) => t.status.equals('syncing'))).write(
-      const PendingOperationsCompanion(
-        status: Value('failed'),
-        lastError: Value(
-          'Giao dịch bị gián đoạn. Cần xác minh server trước khi gửi lại.',
-        ),
+  Future<int> quarantineInterrupted({Duration? staleAfter}) async {
+    final table = db.pendingOperations;
+    final replacement = const PendingOperationsCompanion(
+      status: Value('failed'),
+      lastError: Value(
+        'Giao dịch bị gián đoạn. Cần xác minh server trước khi gửi lại.',
       ),
     );
+    if (staleAfter == null) {
+      return (db.update(
+        table,
+      )..where((t) => t.status.equals('syncing'))).write(replacement);
+    }
+    final cutoff = DateTime.now().subtract(staleAfter).millisecondsSinceEpoch;
+    final rows = await (db.select(
+      table,
+    )..where((t) => t.status.equals('syncing'))).get();
+    var changed = 0;
+    for (final row in rows) {
+      final claim = row.lastError;
+      final timestamp = claim?.startsWith('claim:') == true
+          ? int.tryParse(claim!.substring(6))
+          : null;
+      if (timestamp != null && timestamp > cutoff) continue;
+      changed +=
+          await (db.update(table)..where(
+                (t) =>
+                    t.id.equals(row.id) &
+                    t.status.equals('syncing') &
+                    t.attempts.equals(row.attempts),
+              ))
+              .write(replacement);
+    }
+    return changed;
   }
 }

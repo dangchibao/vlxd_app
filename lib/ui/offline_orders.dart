@@ -8,6 +8,8 @@ import '../data/local/app_database.dart';
 import '../data/sync/offline_checkout_command.dart';
 import '../data/sync/outbox_repository.dart';
 import '../data/sync/outbox_reconciler.dart';
+import '../data/sync/offline_book_operation.dart';
+import '../data/sync/auto_sync_coordinator.dart';
 
 /// Màn hình CHỈ ĐỌC các giao dịch đã lưu trên thiết bị.
 /// Không gọi SyncRuntime, SyncEngine, retryFailed hay xóa bản ghi.
@@ -48,19 +50,9 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
     final outbox = Get.find<OutboxRepository>();
     return outbox.db.select(outbox.db.pendingOperations).watch().map((all) {
       final visible = <PendingOperation>[];
-      for (final operation in all) {
-        if (operation.operationType != 'checkout.v1') continue;
-        try {
-          final command = OfflineCheckoutCommand.decode(operation.payloadJson);
-          if (command.requestId == operation.id &&
-              command.actorId == actor.id) {
-            visible.add(operation);
-          }
-        } catch (_) {
-          // Dữ liệu không đọc được phải được kiểm tra bởi người quản trị;
-          // không hiển thị nội dung lỗi có thể thuộc về tài khoản khác.
-        }
-      }
+      visible.addAll(
+        all.where((row) => offlineOperationOwner(row) == actor.id),
+      );
       visible.sort((a, b) {
         final byDate = b.createdAt.compareTo(a.createdAt);
         return byDate != 0 ? byDate : b.id.compareTo(a.id);
@@ -72,6 +64,7 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
   // Tên chỉ được tra từ dữ liệu hiện có trên máy, không gọi Firebase.
   // Các đơn cũ chưa lưu snapshot tên nên tên hiện tại có thể khác lúc bán.
   String _customerName(String id) {
+    if (id.isEmpty) return 'Khách lẻ';
     final customers = Get.find<ShopController>().data.customers;
     for (final customer in customers) {
       if (customer['id'] == id) {
@@ -80,6 +73,86 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
       }
     }
     return 'Chưa có tên khách hàng';
+  }
+
+  Future<void> _retry(String id) async {
+    try {
+      final message = await Get.find<AutoSyncCoordinator>().reviewAndRetry(id);
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$error')));
+      }
+    }
+  }
+
+  Future<void> _cancel(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Bỏ giao dịch chờ đồng bộ?'),
+        content: const Text(
+          'Giao dịch sẽ được giữ trong lịch sử trên máy. Bạn có thể nhập lại theo thông tin đã đối chiếu.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Quay lại'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Bỏ giao dịch'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await Get.find<AutoSyncCoordinator>().cancelReviewed(id);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$error')));
+      }
+    }
+  }
+
+  Widget _bookTile(PendingOperation row) {
+    final command = OfflineBookOperation.decode(row);
+    final detail = command.type == OfflineBookOperation.payment
+        ? 'Đơn ${command.target} • ${_money(command.amount)}'
+        : '${_productName(command.target)} • ${command.amount / 10000} ${command.unit}';
+    return Card(
+      child: ListTile(
+        title: Text('${command.label} • ${_shortReference(row.id)}'),
+        subtitle: Text(
+          '$detail\n${_statusText(row.status)}${row.status == 'failed' ? '\n${row.lastError ?? ''}' : ''}',
+        ),
+        trailing: Get.isRegistered<AutoSyncCoordinator>()
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (row.status == 'failed')
+                    IconButton(
+                      tooltip: 'Xác minh và gửi lại',
+                      onPressed: () => _retry(row.id),
+                      icon: const Icon(Icons.sync),
+                    ),
+                  if (OutboxRepository.canCancel(row))
+                    IconButton(
+                      tooltip: 'Bỏ giao dịch',
+                      onPressed: () => _cancel(row.id),
+                      icon: const Icon(Icons.close),
+                    ),
+                ],
+              )
+            : null,
+      ),
+    );
   }
 
   String _staffName(String id) {
@@ -115,6 +188,7 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
     'syncing' => 'Đang xử lý',
     'failed' => 'Cần xác minh',
     'synced' => 'Server đã xác nhận',
+    'cancelled' => 'Đã bỏ trên máy',
     _ => 'Trạng thái: $status',
   };
 
@@ -151,6 +225,7 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
       'UID nhan vien: ${command.actorId}',
       'Da thu: ${_money(command.paid)}',
       'Phi giao hang: ${_money(command.ship)}',
+      if (command.discount > 0) 'Giam gia: ${_money(command.discount)}',
       'Giu hang: ${command.hold ? 'Co' : 'Khong'}',
       'San pham:',
       for (final line in command.lines)
@@ -218,6 +293,8 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
                   Text('UID nhân viên: ${command.actorId}'),
                   Text('Tiền đã thu: ${_money(command.paid)}'),
                   Text('Phí giao hàng: ${_money(command.ship)}'),
+                  if (command.discount > 0)
+                    Text('Giảm giá: ${_money(command.discount)}'),
                   Text('Giữ hàng / đặt cọc: ${command.hold ? 'Có' : 'Không'}'),
                   if (command.negativeReason.isNotEmpty)
                     Text('Lý do bán âm: ${command.negativeReason}'),
@@ -252,6 +329,28 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
             ),
           ),
           actions: [
+            if (OutboxRepository.canCancel(operation) &&
+                Get.isRegistered<AutoSyncCoordinator>())
+              TextButton(
+                onPressed: verifying
+                    ? null
+                    : () {
+                        Navigator.pop(ctx);
+                        _cancel(operation.id);
+                      },
+                child: const Text('Bỏ giao dịch'),
+              ),
+            if (operation.status == 'failed' &&
+                Get.isRegistered<AutoSyncCoordinator>())
+              TextButton(
+                onPressed: verifying
+                    ? null
+                    : () {
+                        Navigator.pop(ctx);
+                        _retry(operation.id);
+                      },
+                child: const Text('Xác minh và gửi lại'),
+              ),
             if (operation.status == 'failed')
               OutlinedButton.icon(
                 key: const ValueKey('verify-offline-failed-order'),
@@ -380,6 +479,23 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
     appBar: AppBar(
       title: const Text('Đơn chờ đồng bộ'),
       actions: [
+        if (Get.isRegistered<AutoSyncCoordinator>())
+          IconButton(
+            tooltip: 'Đồng bộ ngay',
+            icon: const Icon(Icons.sync),
+            onPressed: () async {
+              await Get.find<AutoSyncCoordinator>().checkNow();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Đã kiểm tra hàng đợi. Xem trạng thái từng giao dịch.',
+                    ),
+                  ),
+                );
+              }
+            },
+          ),
         IconButton(
           tooltip: 'Làm mới danh sách',
           icon: const Icon(Icons.refresh),
@@ -398,7 +514,7 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
         if (snapshot.hasError) {
           return Center(
             child: Padding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(14),
               child: Text('Không thể đọc đơn offline: ${snapshot.error}'),
             ),
           );
@@ -424,6 +540,12 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
             return false;
           }
           if (search.isEmpty) return true;
+          if (OfflineBookOperation.supports(operation.operationType)) {
+            final command = OfflineBookOperation.decode(operation);
+            return '${command.label} ${command.target} ${operation.id} ${_productName(command.target)}'
+                .toLowerCase()
+                .contains(search);
+          }
           final command = OfflineCheckoutCommand.decode(operation.payloadJson);
           final searchable = <String>[
             operation.id,
@@ -470,6 +592,7 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
                           ('syncing', 'Đang xử lý'),
                           ('failed', 'Cần kiểm tra'),
                           ('synced', 'Đã xác nhận'),
+                          ('cancelled', 'Đã bỏ'),
                         ])
                           Padding(
                             padding: const EdgeInsets.only(right: 8),
@@ -522,6 +645,11 @@ class _OfflineOrdersPageState extends State<OfflineOrdersPage> {
                       itemCount: filtered.length,
                       itemBuilder: (context, index) {
                         final operation = filtered[index];
+                        if (OfflineBookOperation.supports(
+                          operation.operationType,
+                        )) {
+                          return _bookTile(operation);
+                        }
                         final command = OfflineCheckoutCommand.decode(
                           operation.payloadJson,
                         );

@@ -6,15 +6,15 @@ class InventoryPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = Get.find<ShopController>();
     return ListView(
-      padding: const EdgeInsets.all(24),
+      padding: vlxdPagePadding(context),
       children: [
         titleText('Kho và lô hàng'),
         const SizedBox(height: 8),
         hint('Theo dõi tồn thực tế, lượng đang giữ và giá vốn từng lô.'),
-        const SizedBox(height: 20),
+        const SizedBox(height: 12),
         for (final p in c.data.products)
           Padding(
-            padding: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.only(bottom: 9),
             child: panel(
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -37,17 +37,36 @@ class InventoryPage extends StatelessWidget {
                     'Tồn ${area(p.stock)} ${p.unit} • Giữ ${area(p.reserved)} ${p.unit} • Khả dụng ${area(p.available)} ${p.unit}',
                   ),
                   hint('Ngưỡng sắp hết: ${area(p.minimum)} ${p.unit}'),
-                  const SizedBox(height: 8),
-                  for (final l in p.lots)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.layers_outlined, color: blue),
-                      title: Text(l['id']),
-                      subtitle: Text(
-                        '${day(l['date'])}\n${area(l['area'])} ${p.unit} • Vốn ${money(l['cost'])}/${p.unit}',
+                  const SizedBox(height: 4),
+                  if (p.lots.isNotEmpty)
+                    ExpansionTile(
+                      key: PageStorageKey('lots-${p.id}'),
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: EdgeInsets.zero,
+                      dense: true,
+                      initiallyExpanded: false,
+                      leading: const Icon(
+                        Icons.layers_outlined,
+                        size: 19,
+                        color: blue,
                       ),
-                      isThreeLine: true,
+                      title: Text(
+                        'Xem ${p.lots.length} lô hàng',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      children: [
+                        for (final l in p.lots)
+                          ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text('${l['id']} • ${day(l['date'])}'),
+                            subtitle: Text(
+                              '${area(l['area'])} ${p.unit} • Vốn ${money(l['cost'])}/${p.unit}',
+                            ),
+                          ),
+                      ],
                     ),
+                  const SizedBox(height: 5),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
@@ -94,6 +113,8 @@ class InventoryPage extends StatelessWidget {
 }
 
 Future<void> receiveStock(BuildContext context, Product p) async {
+  final shop = Get.find<ShopController>();
+  final operationId = newId();
   final qty = TextEditingController(text: '10'),
       cost = TextEditingController(text: '${(p.price * .7).round()}');
   var date = DateTime.now();
@@ -147,19 +168,40 @@ Future<void> receiveStock(BuildContext context, Product p) async {
               if (!n.isFinite || n <= 0) {
                 throw ArgumentError('Số lượng nhập không hợp lệ.');
               }
-              await Get.find<ShopController>().change(
-                (d, a) => d.receive(
-                  p.id,
-                  (n * p.quantityStep).round(),
-                  whole(cost.text),
-                  date,
-                  a,
-                  'LO-${newId().substring(0, 8)}',
-                ),
-              );
+              final units = (n * p.quantityStep).round();
+              final unitCost = whole(cost.text);
+              if (shop.isLive) {
+                await _queueBookOperation(
+                  shop,
+                  OfflineBookOperation(
+                    type: OfflineBookOperation.receipt,
+                    id: operationId,
+                    actorId: shop.actor!.id,
+                    target: p.id,
+                    amount: units,
+                    cost: unitCost,
+                    ratio: p.ratio,
+                    unit: p.unit,
+                    date: date,
+                  ),
+                );
+              } else {
+                await shop.change(
+                  (d, a) => d.receive(
+                    p.id,
+                    units,
+                    unitCost,
+                    date,
+                    a,
+                    'LO-$operationId',
+                  ),
+                );
+              }
               if (ctx.mounted) Navigator.pop(ctx);
             }),
-            child: const Text('Ghi phiếu nhập'),
+            child: Text(
+              shop.isLive ? 'Lưu phiếu nhập chờ đồng bộ' : 'Ghi phiếu nhập',
+            ),
           ),
         ],
       ),
@@ -306,7 +348,7 @@ class DeliveriesPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = Get.find<ShopController>();
     return ListView(
-      padding: const EdgeInsets.all(24),
+      padding: vlxdPagePadding(context),
       children: [
         Wrap(
           spacing: 20,
@@ -325,7 +367,7 @@ class DeliveriesPage extends StatelessWidget {
         hint(
           'Chủ và nhân viên được xác nhận hoàn tất theo phân quyền đã chốt.',
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 12),
         if (c.data.deliveries.isEmpty)
           const EmptyState(
             'Chưa có chuyến giao hàng',
@@ -334,7 +376,7 @@ class DeliveriesPage extends StatelessWidget {
           ),
         ...c.data.deliveries.map(
           (d) => Padding(
-            padding: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.only(bottom: 9),
             child: panel(
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -347,7 +389,7 @@ class DeliveriesPage extends StatelessWidget {
                       badge(d['status']),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 6),
                   Text(
                     'Tài xế: ${d['driver']}\n${d['vehicle']} • ${d['address']}\nPhí thu khách: ${money(d['fee'])} • Chi tài xế: ${money(d['cost'] ?? 0)}',
                   ),
@@ -631,19 +673,23 @@ Future<String?> editCustomer(BuildContext context, {Json? original}) async {
 }
 
 Future<void> collectPayment(BuildContext context, Json o) async {
-  // Tính số tiền khách còn phải trả.
-  final remaining = (o['total'] as int) - ShopData.collected(o);
-
-  // Định dạng số tiền theo kiểu Việt Nam.
-  // Ví dụ: 870000 -> 870.000
-  String formatMoney(int value) {
-    return value.toString().replaceAllMapped(
-      RegExp(r'\B(?=(\d{3})+(?!\d))'),
-      (match) => '.',
+  final shop = Get.find<ShopController>();
+  final current = shop.data.orders
+      .where((row) => row['id'] == o['id'])
+      .firstOrNull;
+  if (current == null || current['status'] == 'Đã hủy') return;
+  final remaining = shop.data.collectible(current);
+  if (remaining <= 0) {
+    await attempt(
+      () async =>
+          throw StateError('Đơn hoặc sổ công nợ đã hết số tiền cần thu.'),
     );
+    return;
   }
 
-  final amount = TextEditingController(text: formatMoney(remaining));
+  final amount = TextEditingController(
+    text: NumberFormat.decimalPattern('vi').format(remaining),
+  );
 
   final paymentId = newId();
 
@@ -653,7 +699,19 @@ Future<void> collectPayment(BuildContext context, Json o) async {
       title: Text('Thu tiền ${o['id']}'),
       content: SizedBox(
         width: 400,
-        child: field(amount, 'Số tiền khách trả (đ)', moneyInput: true),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Tổng đơn: ${money(current['total'])} • Phí giao hàng đã tính: ${money(current['ship'] ?? 0)}',
+            ),
+            Text(
+              'Đã thu: ${money(ShopData.collected(current))} • Có thể thu: ${money(remaining)}',
+            ),
+            const SizedBox(height: 12),
+            field(amount, 'Số tiền khách trả (đ)', moneyInput: true),
+          ],
+        ),
       ),
       actions: [
         TextButton(
@@ -662,24 +720,53 @@ Future<void> collectPayment(BuildContext context, Json o) async {
         ),
         FilledButton(
           onPressed: () => attempt(() async {
-            // Chuyển chuỗi có dấu phân cách về giá trị số.
             final paymentAmount = whole(amount.text.replaceAll('.', ''));
 
-            await Get.find<ShopController>().change(
-              (d, a) => d.recordPayment(o['id'], paymentAmount, paymentId, a),
-            );
+            if (shop.isLive) {
+              await _queueBookOperation(
+                shop,
+                OfflineBookOperation(
+                  type: OfflineBookOperation.payment,
+                  id: paymentId,
+                  actorId: shop.actor!.id,
+                  target: o['id'] as String,
+                  amount: paymentAmount,
+                  expectedCollected: ShopData.collected(current),
+                ),
+              );
+            } else {
+              await shop.change(
+                (d, a) => d.recordPayment(o['id'], paymentAmount, paymentId, a),
+              );
+            }
 
             if (ctx.mounted) {
               Navigator.pop(ctx);
             }
           }),
-          child: const Text('Xác nhận đã thu'),
+          child: Text(
+            shop.isLive ? 'Lưu khoản thu chờ đồng bộ' : 'Xác nhận đã thu',
+          ),
         ),
       ],
     ),
   );
 
   amount.dispose();
+}
+
+Future<void> _queueBookOperation(
+  ShopController shop,
+  OfflineBookOperation command,
+) async {
+  await shop.queueBookOperation(command);
+  Get.snackbar(
+    'Đã lưu trên thiết bị',
+    'Xem trạng thái trong Đơn chờ đồng bộ ở Bán hàng.',
+  );
+  if (Get.isRegistered<AutoSyncCoordinator>()) {
+    Get.find<AutoSyncCoordinator>().checkNow().ignore();
+  }
 }
 
 Future<void> editSalary(BuildContext context, Json p) async {
@@ -750,57 +837,74 @@ class ReportsPage extends StatelessWidget {
     final top = totals.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     return ListView(
-      padding: const EdgeInsets.all(24),
+      padding: vlxdPagePadding(context),
       children: [
         titleText(c.isLive ? 'Báo cáo cửa hàng' : 'Báo cáo từ dữ liệu mẫu'),
         const SizedBox(height: 8),
         hint(
           'Toàn bộ thời gian • Chưa có bộ lọc ngày/tuần/tháng và lãi lỗ hoàn chỉnh.',
         ),
-        const SizedBox(height: 24),
-        panel(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        const SizedBox(height: 12),
+        LayoutBuilder(
+          builder: (context, reportBox) => Wrap(
+            spacing: 12,
+            runSpacing: 12,
             children: [
-              titleText('Top 10 gạch bán chạy', size: 18),
-              if (top.isEmpty)
-                const EmptyState(
-                  'Chưa có doanh số',
-                  'Chốt một đơn đã bán để xem báo cáo.',
-                  Icons.bar_chart,
-                ),
-              ...top
-                  .take(10)
-                  .map(
-                    (p) => ListTile(
-                      title: Text(p.key),
-                      trailing: Text('${area(p.value)} m²'),
-                    ),
+              SizedBox(
+                width: reportBox.maxWidth >= 850
+                    ? (reportBox.maxWidth - 12) / 2
+                    : reportBox.maxWidth,
+                child: panel(
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      titleText('Top 10 gạch bán chạy', size: 18),
+                      if (top.isEmpty)
+                        const EmptyState(
+                          'Chưa có doanh số',
+                          'Chốt một đơn đã bán để xem báo cáo.',
+                          Icons.bar_chart,
+                        ),
+                      ...top
+                          .take(10)
+                          .map(
+                            (p) => ListTile(
+                              title: Text(p.key),
+                              trailing: Text('${area(p.value)} m²'),
+                            ),
+                          ),
+                    ],
                   ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        panel(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              titleText('Top 10 khách còn nợ', size: 18),
-              ...ranked
-                  .where((p) => c.data.debt(p['id']) > 0)
-                  .take(10)
-                  .map(
-                    (p) => ListTile(
-                      title: Text(p['name']),
-                      trailing: Text(money(c.data.debt(p['id']))),
-                    ),
-                  ),
-              if (!ranked.any((p) => c.data.debt(p['id']) > 0))
-                const EmptyState(
-                  'Chưa có công nợ',
-                  'Các khoản còn phải thu sẽ xuất hiện tại đây.',
-                  Icons.account_balance_wallet_outlined,
                 ),
+              ),
+              SizedBox(
+                width: reportBox.maxWidth >= 850
+                    ? (reportBox.maxWidth - 12) / 2
+                    : reportBox.maxWidth,
+                child: panel(
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      titleText('Top 10 khách còn nợ', size: 18),
+                      ...ranked
+                          .where((p) => c.data.debt(p['id']) > 0)
+                          .take(10)
+                          .map(
+                            (p) => ListTile(
+                              title: Text(p['name']),
+                              trailing: Text(money(c.data.debt(p['id']))),
+                            ),
+                          ),
+                      if (!ranked.any((p) => c.data.debt(p['id']) > 0))
+                        const EmptyState(
+                          'Chưa có công nợ',
+                          'Các khoản còn phải thu sẽ xuất hiện tại đây.',
+                          Icons.account_balance_wallet_outlined,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -838,7 +942,7 @@ class _AuditPageState extends State<AuditPage> {
     final pages = math.max(1, (rows.length / 20).ceil());
     page = math.min(page, pages - 1);
     return ListView(
-      padding: const EdgeInsets.all(24),
+      padding: vlxdPagePadding(context),
       children: [
         titleText('Nhật ký thao tác'),
         const SizedBox(height: 8),
@@ -870,7 +974,7 @@ class _AuditPageState extends State<AuditPage> {
             .take(20)
             .map(
               (a) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.only(bottom: 6),
                 child: panel(
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -882,7 +986,7 @@ class _AuditPageState extends State<AuditPage> {
                       hint(
                         '${auditPresentation(c.data, a, actor: c.actor).person} • ${day(a['at'])}',
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 3),
                       Text(auditPresentation(c.data, a, actor: c.actor).detail),
                     ],
                   ),
@@ -916,10 +1020,12 @@ class SettingsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = Get.find<ShopController>();
     return ListView(
-      padding: const EdgeInsets.all(24),
+      padding: vlxdPagePadding(context),
       children: [
         titleText('Cài đặt cửa hàng'),
-        const SizedBox(height: 20),
+        const SizedBox(height: 12),
+        const VlxdDisplayPreferencesPanel(),
+        const SizedBox(height: 12),
         panel(
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -997,7 +1103,7 @@ class SettingsPage extends StatelessWidget {
                 subtitle: Text('Luôn tắt theo yêu cầu cửa hàng'),
               ),
               ...c.data.notifications
-                  .take(10)
+                  .take(5)
                   .map(
                     (n) => ListTile(
                       contentPadding: EdgeInsets.zero,

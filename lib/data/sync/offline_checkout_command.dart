@@ -41,6 +41,7 @@ class OfflineCheckoutCommand {
   final List<OfflineCheckoutLine> lines;
   final int paid;
   final int ship;
+  final int discount;
   final bool hold;
   final String negativeReason;
   final DateTime createdAt;
@@ -52,6 +53,7 @@ class OfflineCheckoutCommand {
     required this.lines,
     required this.paid,
     required this.ship,
+    this.discount = 0,
     required this.hold,
     required this.negativeReason,
     required this.createdAt,
@@ -65,6 +67,7 @@ class OfflineCheckoutCommand {
     'lines': lines.map((line) => line.toJson()).toList(),
     'paid': paid,
     'ship': ship,
+    if (discount > 0) 'discount': discount,
     'hold': hold,
     'negativeReason': negativeReason,
     'createdAt': createdAt.toUtc().toIso8601String(),
@@ -92,6 +95,7 @@ class OfflineCheckoutCommand {
           .toList(),
       paid: json['paid'] as int,
       ship: json['ship'] as int,
+      discount: json['discount'] as int? ?? 0,
       hold: json['hold'] as bool,
       negativeReason: json['negativeReason'] as String,
       createdAt: DateTime.parse(json['createdAt'] as String),

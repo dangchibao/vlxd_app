@@ -6,7 +6,9 @@ import 'package:uuid/uuid.dart';
 
 import '../data/demo_repository.dart';
 import '../data/local/cart_draft_repository.dart';
+import '../data/local/shop_snapshot_cache.dart';
 import '../data/sync/offline_checkout_command.dart';
+import '../data/sync/offline_book_operation.dart';
 import '../data/sync/outbox_repository.dart';
 import '../domain/shop.dart';
 
@@ -24,6 +26,9 @@ class ShopController extends GetxController {
   int _session = 0;
 
   OutboxRepository? _checkoutOutbox;
+  ShopSnapshotCache? _snapshotCache;
+  bool showingOfflineSnapshot = false;
+  DateTime? snapshotAt;
   CartDraftRepository? _drafts;
   String? draftSaveError;
 
@@ -31,6 +36,7 @@ class ShopController extends GetxController {
   String draftCustomerId = '';
   String draftShippingText = '0';
   String draftPaidText = '';
+  String draftDiscountText = '';
   String draftNegativeReason = '';
   bool draftHold = false;
   int draftFormRevision = 0;
@@ -39,6 +45,7 @@ class ShopController extends GetxController {
     required String customerId,
     required String shippingText,
     required String paidText,
+    String discountText = '',
     required bool hold,
     required String negativeReason,
   }) {
@@ -46,6 +53,7 @@ class ShopController extends GetxController {
     draftCustomerId = customerId;
     draftShippingText = shippingText;
     draftPaidText = paidText;
+    draftDiscountText = discountText;
     draftHold = hold;
     draftNegativeReason = negativeReason;
     _cartChanged();
@@ -55,9 +63,14 @@ class ShopController extends GetxController {
     draftCustomerId = '';
     draftShippingText = '0';
     draftPaidText = '';
+    draftDiscountText = '';
     draftHold = false;
     draftNegativeReason = '';
     draftFormRevision++;
+  }
+
+  void attachShopSnapshotCache(ShopSnapshotCache cache) {
+    _snapshotCache = cache;
   }
 
   void attachCartDrafts(CartDraftRepository drafts) {
@@ -93,6 +106,7 @@ class ShopController extends GetxController {
             customerId: draftCustomerId,
             shippingText: draftShippingText,
             paidText: draftPaidText,
+            discountText: draftDiscountText,
             hold: draftHold,
             negativeReason: draftNegativeReason,
           );
@@ -162,11 +176,13 @@ class ShopController extends GetxController {
     final customerId = raw['customerId'];
     final shippingText = raw['shippingText'];
     final paidText = raw['paidText'];
+    final discountText = raw['discountText'];
     final hold = raw['hold'];
     final negativeReason = raw['negativeReason'];
     if ((customerId != null && customerId is! String) ||
         (shippingText != null && shippingText is! String) ||
         (paidText != null && paidText is! String) ||
+        (discountText != null && discountText is! String) ||
         (hold != null && hold is! bool) ||
         (negativeReason != null && negativeReason is! String)) {
       throw const FormatException('Thông tin thanh toán trong nháp bị lỗi.');
@@ -185,6 +201,7 @@ class ShopController extends GetxController {
       draftCustomerId = recoveredCustomer;
       draftShippingText = shippingText is String ? shippingText : '0';
       draftPaidText = paidText is String ? paidText : '';
+      draftDiscountText = discountText is String ? discountText : '';
       draftHold = hold is bool ? hold : false;
       draftNegativeReason = negativeReason is String ? negativeReason : '';
       draftFormRevision++;
@@ -254,36 +271,63 @@ class ShopController extends GetxController {
 
   Future<void> connect(Actor user) async {
     final generation = ++_session;
-
     await _subscription?.cancel();
-
     if (generation != _session) return;
 
     actor = user;
     data = ShopData.empty();
-
+    showingOfflineSnapshot = false;
     syncing = true;
     syncError = null;
     update();
 
+    // SessionController has already approved this actor from the user profile.
+    // A cached snapshot never grants login rights by itself.
+    try {
+      final cached = await _snapshotCache?.load(user.id);
+      if (generation != _session) return;
+      if (cached != null) {
+        data = cached.data;
+        snapshotAt = cached.at;
+        showingOfflineSnapshot = true;
+        syncing = false;
+        syncError =
+            'Đang dùng dữ liệu đã lưu trên máy; '
+            'giao dịch mới chỉ được xác nhận khi Firebase đồng bộ.';
+        update();
+      }
+    } catch (_) {
+      // Local storage failure should not prevent loading from Firebase.
+    }
+
+    if (generation != _session) return;
     _subscription = (repository as TransactionalShopRepository).watch().listen(
       (next) {
         if (generation != _session) return;
-
         data = next;
+        snapshotAt = DateTime.now();
+        showingOfflineSnapshot = false;
         syncing = false;
         syncError = null;
         update();
+        // Save only a server-loaded shop snapshot; do not include Outbox.
+        final cache = _snapshotCache;
+        if (cache != null) {
+          unawaited(cache.save(user.id, next).catchError((Object _) {}));
+        }
       },
       onError: (Object error) {
         if (generation != _session) return;
-
         syncing = false;
-        syncError =
-            'Không đồng bộ được Firestore. '
-            'Kiểm tra mạng, hồ sơ tài khoản và Security Rules. '
-            'Dữ liệu chưa bị thay thế bằng mẫu.';
-
+        if (showingOfflineSnapshot) {
+          syncError =
+              'Mất kết nối Firebase. Đang xem bản lưu trên máy; '
+              'chỉ lưu đơn offline vào SQLite, chưa xác nhận bán thành công.';
+        } else {
+          syncError =
+              'Không tải được dữ liệu cửa hàng từ Firebase. '
+              'Chưa có bản lưu hợp lệ trên máy này.';
+        }
         update();
       },
     );
@@ -297,6 +341,8 @@ class ShopController extends GetxController {
 
     actor = null;
     data = ShopData.empty();
+    showingOfflineSnapshot = false;
+    snapshotAt = null;
     _clearCartInternally();
     _cartWriteLocked = false;
     _resetDraftForm();
@@ -457,10 +503,39 @@ class ShopController extends GetxController {
   ///
   /// Chỉ tạo dữ liệu, chưa lưu Drift hay gửi Firebase.
   /// Không xóa giỏ hàng hoặc thay đổi requestId.
+  Future<void> queueBookOperation(OfflineBookOperation command) async {
+    final current = actor;
+    final outbox = _checkoutOutbox;
+    if (!isLive ||
+        current == null ||
+        outbox == null ||
+        current.id != command.actorId) {
+      throw StateError('Không có phiên hợp lệ để lưu giao dịch.');
+    }
+    current.requireAccess();
+    // Validate against the local view without modifying confirmed balances.
+    command.apply(data.copy(), current);
+    final payload = command.encode();
+    try {
+      await outbox.enqueue(
+        id: command.id,
+        operationType: command.type,
+        payloadJson: payload,
+      );
+    } catch (_) {
+      final existing = await outbox.getById(command.id);
+      if (existing?.operationType != command.type ||
+          existing?.payloadJson != payload) {
+        rethrow;
+      }
+    }
+  }
+
   OfflineCheckoutCommand prepareOfflineCheckout({
     required String customerId,
     required int paid,
     required int ship,
+    int discount = 0,
     bool hold = false,
     String negativeReason = '',
   }) {
@@ -484,12 +559,16 @@ class ShopController extends GetxController {
       throw StateError('Giỏ hàng đang trống.');
     }
 
-    if (customerId.trim().isEmpty) {
-      throw ArgumentError('Chưa chọn khách hàng.');
-    }
-
     if (paid < 0 || ship < 0) {
       throw ArgumentError('Tiền thanh toán và phí giao hàng không được âm.');
+    }
+    if (discount < 0 ||
+        discount > subtotal ||
+        paid > subtotal - discount + ship) {
+      throw ArgumentError('Giảm giá hoặc số tiền đã thu không hợp lệ.');
+    }
+    if (customerId.isEmpty && (hold || paid < subtotal - discount + ship)) {
+      throw ArgumentError('Chọn khách hàng khi giữ đơn hoặc còn phải thu.');
     }
 
     final lines = <OfflineCheckoutLine>[];
@@ -519,6 +598,7 @@ class ShopController extends GetxController {
       lines: lines,
       paid: paid,
       ship: ship,
+      discount: discount,
       hold: hold,
       negativeReason: negativeReason,
       createdAt: DateTime.now().toUtc(),
@@ -541,6 +621,7 @@ class ShopController extends GetxController {
     required String customerId,
     required int paid,
     required int ship,
+    int discount = 0,
     bool hold = false,
     String negativeReason = '',
   }) async {
@@ -552,6 +633,7 @@ class ShopController extends GetxController {
       customerId: customerId,
       paid: paid,
       ship: ship,
+      discount: discount,
       hold: hold,
       negativeReason: negativeReason,
     );
@@ -683,6 +765,7 @@ class ShopController extends GetxController {
     required String customerId,
     required int paid,
     required int ship,
+    int discount = 0,
     bool hold = false,
     String negativeReason = '',
   }) async {
@@ -742,6 +825,7 @@ class ShopController extends GetxController {
           customerId: customerId,
           paid: paid,
           ship: ship,
+          discount: discount,
           hold: hold,
           actor: a,
           negativeReason: negativeReason,

@@ -17,6 +17,7 @@ import 'ui/app.dart';
 
 import 'data/local/app_database.dart';
 import 'data/local/cart_draft_repository.dart';
+import 'data/local/shop_snapshot_cache.dart';
 import 'data/sync/outbox_repository.dart';
 import 'data/sync/sync_engine.dart';
 import 'data/sync/sync_runtime.dart';
@@ -56,10 +57,12 @@ Future<void> main() async {
       if (!emulator && options.projectId != 'vlxd-bay-hai') {
         throw StateError('Firebase project ID không khớp vlxd-bay-hai.');
       }
-      final app = await Firebase.initializeApp(
-        name: emulator ? 'bay-hai-emulator' : null,
-        options: options,
-      );
+      // Use the default Firebase app in both modes. Some Firebase plugins
+      // resolve [DEFAULT] internally even when auth/firestore are passed an
+      // explicit app, so a named-only emulator app can fail at startup.
+      // USE_FIREBASE_EMULATOR still selects isolated demo credentials and
+      // routes Auth/Firestore to localhost below.
+      final app = await Firebase.initializeApp(options: options);
       final auth = FirebaseAuth.instanceFor(app: app);
       final firestore = FirebaseFirestore.instanceFor(app: app);
       if (!kIsWeb) {
@@ -79,11 +82,17 @@ Future<void> main() async {
       final shop = Get.put(ShopController(repository, ShopData.empty()));
 
       // Database cục bộ.
-      final localDb = Get.put(AppDatabase(), permanent: true);
+      final localDb = Get.put(
+        emulator ? AppDatabase.forEmulator() : AppDatabase(),
+        permanent: true,
+      );
 
       // Hàng đợi thao tác offline.
       final outbox = Get.put(OutboxRepository(localDb), permanent: true);
       shop.attachCheckoutOutbox(outbox);
+      final snapshotCache = ShopSnapshotCache(localDb);
+      shop.attachShopSnapshotCache(snapshotCache);
+
       shop.attachCartDrafts(
         Get.put(CartDraftRepository(localDb), permanent: true),
       );
@@ -107,7 +116,11 @@ Future<void> main() async {
       // Điều phối đồng bộ.
 
       final reconciler = Get.put(
-        OutboxReconciler(outbox: outbox, verifyRequest: verifier.verify),
+        OutboxReconciler(
+          outbox: outbox,
+          verifyRequest: verifier.verify,
+          verifyBook: verifier.verifyBook,
+        ),
         permanent: true,
       );
 
@@ -117,11 +130,19 @@ Future<void> main() async {
       );
 
       // Opt-in: only enable after validation against Firebase Emulator.
+      // Safety: never dispatch local Outbox records on production implicitly.
+      // Emulator testing: --dart-define=USE_FIREBASE_EMULATOR=true
+      //                   --dart-define=AUTO_SYNC_OUTBOX=true
       const autoSyncEnabled = bool.fromEnvironment(
         'AUTO_SYNC_OUTBOX',
         defaultValue: false,
       );
-      if (autoSyncEnabled) {
+      // A separate, explicit opt-in is required for production.
+      const allowProductionAutoSync = bool.fromEnvironment(
+        'ALLOW_PRODUCTION_AUTO_SYNC',
+        defaultValue: false,
+      );
+      if (autoSyncEnabled && (emulator || allowProductionAutoSync)) {
         final autoSync = Get.put(
           AutoSyncCoordinator(
             auth: auth,
@@ -138,7 +159,7 @@ Future<void> main() async {
       }
 
       // Giữ nguyên cơ chế đăng nhập hiện có.
-      Get.put(SessionController(auth, firestore, shop));
+      Get.put(SessionController(auth, firestore, shop, cache: snapshotCache));
     }
     runApp(const BayHaiApp());
   } catch (error) {

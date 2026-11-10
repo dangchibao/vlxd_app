@@ -22,6 +22,7 @@ void main() {
       ],
       paid: 500000,
       ship: 50000,
+      discount: 25000,
       hold: false,
       negativeReason: '',
       createdAt: DateTime.utc(2026, 11, 8),
@@ -37,6 +38,7 @@ void main() {
     expect(restored.lines.single.quotedPrice, 150000);
     expect(restored.paid, 500000);
     expect(restored.ship, 50000);
+    expect(restored.discount, 25000);
     expect(restored.lines.single.note, 'Giao buổi sáng');
   });
 

@@ -1,3 +1,7 @@
+import 'dart:typed_data';
+
+import 'package:excel_community/excel_community.dart' hide Border;
+
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -27,9 +31,13 @@ import 'print_service.dart';
 import '../utils/money_input_formatter.dart';
 
 import '../data/sync/outbox_repository.dart';
+import '../data/sync/offline_book_operation.dart';
+import '../data/sync/auto_sync_coordinator.dart';
 
 import 'offline_orders.dart';
 
+import 'vlxd_theme.dart';
+import 'display_preferences.dart';
 part 'catalog.dart';
 part 'sales.dart';
 part 'operations.dart';
@@ -37,6 +45,7 @@ part 'authentication.dart';
 part 'accounts.dart';
 part 'history.dart';
 part 'shell.dart';
+part 'accounting.dart';
 part 'debt.dart';
 part 'invoices.dart';
 part 'finance_settings.dart';
@@ -53,59 +62,49 @@ double decimal(String v) =>
 int whole(String v) => int.tryParse(v.replaceAll(' ', '').trim()) ?? -1;
 String newId() => const Uuid().v4();
 
-class BayHaiApp extends StatelessWidget {
+class BayHaiApp extends StatefulWidget {
   const BayHaiApp({super.key});
+
   @override
-  Widget build(BuildContext context) => GetMaterialApp(
-    title: 'VLXD Bảy Hải',
-    debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      useMaterial3: true,
-      scaffoldBackgroundColor: const Color(0xFFF3F6FB),
-      colorScheme: ColorScheme.fromSeed(seedColor: blue, primary: blue),
-      textTheme: ThemeData.light().textTheme.apply(
-        bodyColor: ink,
-        displayColor: ink,
+  State<BayHaiApp> createState() => _BayHaiAppState();
+}
+
+class _BayHaiAppState extends State<BayHaiApp> {
+  final display = VlxdDisplayPreferences.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    display.load();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: display,
+    builder: (context, _) => GetMaterialApp(
+      title: 'VLXD Bảy Hải',
+      debugShowCheckedModeBanner: false,
+      theme: display.applyTheme(VlxdUiTheme.light),
+      builder: (context, child) {
+        final media = MediaQuery.of(context);
+        // Preserve the device's accessibility font setting, then apply
+        // the local in-app multiplier. Do not change layout/zoom scale.
+        final systemScale = media.textScaler.scale(1.0);
+        final totalScale = (systemScale * display.fontFactor)
+            .clamp(0.8, 2.5)
+            .toDouble();
+        return MediaQuery(
+          data: media.copyWith(textScaler: TextScaler.linear(totalScale)),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
+      home: GetBuilder<ShopController>(
+        builder: (c) => Get.isRegistered<SessionController>()
+            ? const FirebaseGate()
+            : c.actor == null
+            ? const LoginPage()
+            : const ShopShell(),
       ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 14,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Color(0xFFDCE4EE)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Color(0xFFDCE4EE)),
-        ),
-      ),
-      cardTheme: CardThemeData(
-        color: Colors.white,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: const BorderSide(color: Color(0xFFE2E8F0)),
-        ),
-      ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-      ),
-    ),
-    home: GetBuilder<ShopController>(
-      builder: (c) => Get.isRegistered<SessionController>()
-          ? const FirebaseGate()
-          : c.actor == null
-          ? const LoginPage()
-          : const ShopShell(),
     ),
   );
 }
@@ -139,12 +138,12 @@ Future<T?> safeDialog<T>({
   return result;
 }
 
-Widget panel(Widget child, {EdgeInsets padding = const EdgeInsets.all(20)}) =>
+Widget panel(Widget child, {EdgeInsets padding = const EdgeInsets.all(14)}) =>
     Card(
       margin: EdgeInsets.zero,
       child: Padding(padding: padding, child: child),
     );
-Widget titleText(String text, {double size = 24}) => Text(
+Widget titleText(String text, {double size = 22}) => Text(
   text,
   style: TextStyle(fontSize: size, fontWeight: FontWeight.w800, color: ink),
 );
@@ -152,21 +151,65 @@ Widget hint(String text, {Color? color}) => Text(
   text,
   style: TextStyle(fontSize: 13, color: color ?? const Color(0xFF657993)),
 );
-Widget badge(String text, {bool warning = false}) => Container(
-  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-  decoration: BoxDecoration(
-    color: warning ? const Color(0xFFFFF0D7) : const Color(0xFFE8F2FF),
-    borderRadius: BorderRadius.circular(8),
-  ),
-  child: Text(
-    text,
-    style: TextStyle(
-      fontSize: 12,
-      color: warning ? const Color(0xFF965D00) : blue,
-      fontWeight: FontWeight.w600,
+Widget badge(String text, {bool warning = false}) {
+  final lower = text.toLowerCase();
+  final danger =
+      lower.contains('lỗi') ||
+      lower.contains('thất bại') ||
+      lower.contains('hủy') ||
+      lower.contains('quá hạn');
+  final success =
+      lower.contains('đã xong') ||
+      lower.contains('đã bán') ||
+      lower.contains('thành công') ||
+      lower.contains('đã đồng bộ');
+  final attention =
+      warning ||
+      lower.contains('chờ') ||
+      lower.contains('sắp hết') ||
+      lower.contains('đang giao');
+  final foreground = danger
+      ? const Color(0xFFB42333)
+      : success
+      ? const Color(0xFF147B55)
+      : attention
+      ? const Color(0xFF985B05)
+      : blue;
+  final background = danger
+      ? const Color(0xFFFFE9EB)
+      : success
+      ? const Color(0xFFE6F6EE)
+      : attention
+      ? const Color(0xFFFFF2DA)
+      : const Color(0xFFE8F2FF);
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+    decoration: BoxDecoration(
+      color: background,
+      borderRadius: BorderRadius.circular(7),
     ),
-  ),
-);
+    child: Text(
+      text,
+      style: TextStyle(
+        fontSize: 12,
+        color: foreground,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
+}
+
+/// Spacing scales down on a phone without changing data or business rules.
+EdgeInsets vlxdPagePadding(BuildContext context) {
+  final width = MediaQuery.sizeOf(context).width;
+  return EdgeInsets.all(
+    width < 600
+        ? 12
+        : width < 1000
+        ? 16
+        : 20,
+  );
+}
 
 class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
@@ -299,6 +342,7 @@ const destinations = [
   'Nhật ký',
   'Cài đặt',
   'Hóa đơn',
+  'Kế toán & Thuế',
 ];
 const navIcons = [
   Icons.dashboard_outlined,
@@ -311,6 +355,7 @@ const navIcons = [
   Icons.history,
   Icons.settings_outlined,
   Icons.receipt_long_outlined,
+  Icons.calculate_outlined,
 ];
 
 class DashboardPage extends StatelessWidget {
@@ -339,7 +384,7 @@ class DashboardPage extends StatelessWidget {
         .where((p) => p.active && p.isOld(DateTime.now()))
         .toList();
     return ListView(
-      padding: const EdgeInsets.all(24),
+      padding: vlxdPagePadding(context),
       children: [
         Wrap(
           alignment: WrapAlignment.spaceBetween,
@@ -364,12 +409,12 @@ class DashboardPage extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 14),
         LayoutBuilder(
           builder: (context, b) {
-            final cols = b.maxWidth > 1000
+            final cols = b.maxWidth >= 850
                 ? 4
-                : b.maxWidth > 600
+                : b.maxWidth >= 420
                 ? 2
                 : 1;
             return Wrap(
@@ -481,14 +526,14 @@ class DashboardPage extends StatelessWidget {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: 14),
+            Icon(icon, color: color, size: 23),
+            const SizedBox(height: 7),
             hint(label),
             const SizedBox(height: 7),
             Text(
               value,
               style: TextStyle(
-                fontSize: 25,
+                fontSize: 22,
                 fontWeight: FontWeight.w800,
                 color: color,
               ),

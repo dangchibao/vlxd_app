@@ -52,7 +52,8 @@ Future<void> editCustomerBook(BuildContext context, String id) async {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  'Nhập tổng số tiền muốn hiển thị trong sổ. Hóa đơn cũ giữ nguyên; phần chênh lệch được ghi điều chỉnh có nhật ký.',
+                  'Đã thu không được thấp hơn tổng phiếu thu hợp lệ. '
+                  'Nếu ghi nhầm tiền, mở đơn hàng để sửa lần thu.',
                 ),
                 const SizedBox(height: 16),
                 field(total, 'Phải thu (đ)', moneyInput: true),

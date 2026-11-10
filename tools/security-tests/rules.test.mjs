@@ -85,6 +85,12 @@ test('orders require unique request record and totals cannot be rewritten', asyn
   await assertFails(commit(db('sales'),'sales','m2',[['orders',{...order,total:200,subtotal:200}]],2));
   await assertFails(commit(db('sales'),'sales','m2',[['orders',{...order,id:'DH2'}],['requests',{id:'request1',orderId:'DH2'}]],2));
 });
+test('discounted order keeps net subtotal compatible with rules and discount immutable', async () => {
+  const order = {id:'DH1',requestId:'discount-order',actor:'sales',customerId:'',status:'Đã bán',subtotal:75000,discount:25000,ship:50000,total:125000,lines:[{name:'Prime',amount:100000}],payments:[]};
+  await assertSucceeds(commit(db('sales'),'sales','discount1',[['orders',order],['requests',{id:order.requestId,orderId:order.id}]]));
+  await assertFails(commit(db('sales'),'sales','discount2',[['orders',{...order,discount:50000}]],2));
+});
+
 test('delete product, forged audit actor, unknown collections and other stores denied', async () => {
   await assertSucceeds(commit(db('sales'),'sales','m1',[['products',product]]));
   await assertFails(deleteDoc(doc(db('owner'),`${path}/products/P1`)));

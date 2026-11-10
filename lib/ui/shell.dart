@@ -1,7 +1,7 @@
 part of 'app.dart';
 
 // Presentation order is independent of page IDs used by existing shortcuts.
-const _navigationOrder = [0, 1, 2, 3, 4, 5, 6, 9, 7, 8];
+const _navigationOrder = [0, 1, 2, 3, 4, 5, 6, 9, 10, 7, 8];
 
 class ShopShell extends StatelessWidget {
   const ShopShell({super.key});
@@ -34,10 +34,11 @@ class ShopShell extends StatelessWidget {
           AuditPage(key: pageKey),
           SettingsPage(key: pageKey),
           InvoicesPage(key: pageKey),
+          AccountingPage(key: pageKey),
         ];
         final navigation = ListView(
           children: [
-            const Padding(padding: EdgeInsets.all(24), child: _ShopBrand()),
+            const Padding(padding: EdgeInsets.all(16), child: _ShopBrand()),
             for (final i in _navigationOrder)
               ListTile(
                 selected: c.page == i,
@@ -51,10 +52,7 @@ class ShopShell extends StatelessWidget {
               ),
           ],
         );
-        final warning =
-            !c.isLive ||
-            c.syncError != null ||
-            (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows);
+        final warning = !c.isLive || c.syncError != null;
         return Scaffold(
           appBar: AppBar(
             backgroundColor: blue,
@@ -65,7 +63,7 @@ class ShopShell extends StatelessWidget {
                 ? Row(
                     children: [
                       const _ShopBrand(light: true),
-                      const SizedBox(width: 24),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: Padding(
                           padding: EdgeInsets.zero,
@@ -90,8 +88,8 @@ class ShopShell extends StatelessWidget {
                                             ? Colors.white
                                             : Colors.transparent,
                                         padding: const EdgeInsets.symmetric(
-                                          horizontal: 14,
-                                          vertical: 18,
+                                          horizontal: 10,
+                                          vertical: 11,
                                         ),
                                         shape: RoundedRectangleBorder(
                                           borderRadius: BorderRadius.circular(
@@ -124,116 +122,80 @@ class ShopShell extends StatelessWidget {
               ),
               const SizedBox(width: 8),
             ],
-            toolbarHeight: desktop ? 70 : 56,
+            toolbarHeight: desktop ? 58 : 54,
           ),
+          bottomNavigationBar: desktop
+              ? null
+              : SafeArea(
+                  top: false,
+                  child: Material(
+                    color: Colors.white,
+                    elevation: 6,
+                    child: SizedBox(
+                      height: 60,
+                      child: Row(
+                        children: [
+                          for (final i in [0, 1, 2, 3])
+                            Expanded(
+                              child: InkWell(
+                                key: ValueKey('mobile-nav-$i'),
+                                onTap: () => c.navigate(i),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      navIcons[i],
+                                      size: 22,
+                                      color: c.page == i
+                                          ? blue
+                                          : const Color(0xFF657993),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      destinations[i],
+                                      maxLines: 1,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: c.page == i
+                                            ? FontWeight.w800
+                                            : FontWeight.w500,
+                                        color: c.page == i
+                                            ? blue
+                                            : const Color(0xFF657993),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          Expanded(
+                            child: Builder(
+                              builder: (inner) => InkWell(
+                                onTap: () => Scaffold.of(inner).openDrawer(),
+                                child: const Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.menu, size: 22),
+                                    SizedBox(height: 3),
+                                    Text(
+                                      'Thêm',
+                                      style: TextStyle(fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
           drawer: desktop ? null : Drawer(child: navigation),
           body: Row(
             children: [
-              if (desktop)
-                Container(
-                  width: 196,
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    border: Border(right: BorderSide(color: Color(0xFFDCE4EE))),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Container(
-                        height: 154,
-                        margin: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(10),
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFE2ECF7), Color(0xFFF7F3EA)],
-                          ),
-                        ),
-                        child: const Icon(
-                          Icons.layers_outlined,
-                          size: 76,
-                          color: Color(0xFF8199B5),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                        child: hint('QUẢN LÝ CỬA HÀNG'),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        margin: const EdgeInsets.symmetric(horizontal: 8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE4EFFF),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(navIcons[c.page], color: blue, size: 22),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                destinations[c.page],
-                                style: const TextStyle(
-                                  color: blue,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Spacer(),
-                      const Divider(height: 1),
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Icon(
-                              Icons.account_circle_outlined,
-                              color: blue,
-                              size: 30,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              c.actor!.role == Role.owner
-                                  ? 'Chủ cửa hàng'
-                                  : 'Nhân viên bán hàng',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Icon(
-                                  c.syncError != null
-                                      ? Icons.cloud_off_outlined
-                                      : Icons.cloud_done_outlined,
-                                  size: 16,
-                                  color: c.syncError != null
-                                      ? Colors.orange
-                                      : const Color(0xFF168366),
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: hint(
-                                    !c.isLive
-                                        ? 'Bản dùng thử'
-                                        : c.syncing
-                                        ? 'Đang đồng bộ'
-                                        : c.syncError != null
-                                        ? 'Lỗi đồng bộ'
-                                        : 'Đã kết nối',
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              // Desktop already has full navigation in the blue header.
+              // Remove redundant 196px sidebar and its blank branding panel.
               Expanded(
                 child: Column(
                   children: [
@@ -249,7 +211,7 @@ class ShopShell extends StatelessWidget {
                           !c.isLive
                               ? 'DỮ LIỆU MẪU • Lưu trên thiết bị này'
                               : c.syncError != null
-                              ? c.syncError!
+                              ? '${c.syncError!}${c.snapshotAt == null ? '' : ' • Dữ liệu lúc ${DateFormat('dd/MM HH:mm').format(c.snapshotAt!)}'}'
                               : 'Windows Firebase đang thử nghiệm • Sử dụng bản Web khi vận hành',
                           style: const TextStyle(
                             fontSize: 12,

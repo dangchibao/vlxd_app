@@ -108,6 +108,21 @@ Mỗi nhóm là một đợt có ranh giới, có thể chia bước nhỏ; khô
 
 ## 8. Theo dõi tác vụ
 
+### Đối chiếu công nợ khách Loan
+
+- Firestore xác nhận 8 đơn đã thu đủ 6.086.800 đ. Chênh lệch 50.000 đ xuất phát từ điều chỉnh Đã thu âm. Đã lưu bút toán được duyệt bằng giao dịch kiểm tra phiên bản, ghi nhật ký và đọc lại số dư 0 đ.
+- App chặn chỉnh Đã thu thấp hơn tổng phiếu thu hợp lệ. Muốn sửa phiếu nhập sai, dùng luồng điều chỉnh lần thu trên đơn. Chốt kiểm tra này ở domain khi ghi giao dịch, với thông báo trong biểu mẫu chỉnh sổ. Các thiết bị cần chạy bản app mới để áp dụng.
+- 10/11/2026: build Web release và triển khai Hosting `vlxd-bay-hai` theo xác nhận. Tệp `main.dart.js` phục vụ qua Hosting trả HTTP 200 và khớp SHA-256 với bản build cục bộ.
+
+### 10/11/2026 — Bán hàng và công nợ
+
+- Mã hiện tại đã có Drift/SQLite cho nháp, ảnh chụp dữ liệu và hàng đợi đơn offline. Nhận định chưa có SQLite ở bản rà soát 04/11 là mốc lịch sử. Đơn, tồn và công nợ chính thức tiếp tục dựa vào giao dịch Firestore.
+- Đã bỏ báo giá PDF và tính gạch theo phòng. Giữ in hóa đơn đã bán. Giảm giá theo số tiền VND, tối đa bằng tiền hàng. Khi không nhập, giảm giá bằng 0. Tổng đơn = tiền hàng − giảm giá + phí giao hàng. Hóa đơn lưu `subtotal` sau giảm và lưu riêng `discount` khi có giảm, giữ công thức Rules `total = subtotal + ship`. Nháp và payload offline cũ mặc định không giảm giá.
+- Sổ công nợ phân trang độc lập, 10 dòng/trang, cho thanh toán, đơn hàng và điều chỉnh. Khi số dư theo đơn khác số dư sổ, màn hình hiện phần chênh lệch và mở đối chiếu. Phiếu thu mặc định theo số còn thu được, giới hạn bởi cả số dư đơn và số dư sổ.
+- Đã kiểm tra kịch bản chỉ còn 50.000 đ phí giao hàng và thu nốt về 0, cùng trường hợp sổ đã có khoản thu điều chỉnh. Ảnh người dùng không đủ để kết luận nguyên nhân trên khách thật. Không sửa dữ liệu giao dịch để ép số dư về 0.
+- Kiểm thử đã qua: Flutter 181 ca ở lượt toàn bộ, sau đó 15 ca chọn lọc cho phân trang, nháp và Outbox. Firebase Rules Emulator 16/16, gồm đơn giảm giá và chặn sửa giảm giá sau chốt.
+- Build Windows Debug và integration hai client trên Emulator đạt. Kịch bản lưu giảm giá 25.000 đ từ SQLite, đồng bộ đúng một đơn, ghi nốt phí giao hàng 50.000 đ rồi đọc lại số dư 0 từ client khác. Analyzer còn 8 lint mức info ngoài phạm vi tại `auto_sync_coordinator.dart`, `accounting.dart` và `app.dart`. Không có lỗi biên dịch.
+
 | Tác vụ | Trạng thái | Kết quả |
 | --- | --- | --- |
 | Rà soát chọn lọc và tạo hai tài liệu gốc | Hoàn tất lượt kế hoạch | PROJECT_STATUS.md + AGENTS.md; không đổi source/config/data |

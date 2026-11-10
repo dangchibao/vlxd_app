@@ -7,6 +7,18 @@ import '../../domain/shop.dart';
 import 'firebase_request_verifier.dart';
 import 'offline_checkout_command.dart';
 import 'offline_checkout_preflight.dart';
+import 'offline_book_operation.dart';
+import 'sync_failure.dart';
+
+T _validateBusiness<T>(T Function() action) {
+  try {
+    return action();
+  } on StateError catch (error) {
+    throw SyncFailure(SyncFailureKind.permanent, error.message);
+  } on ArgumentError catch (error) {
+    throw SyncFailure(SyncFailureKind.permanent, error.message.toString());
+  }
+}
 
 /// Xử lý một lệnh checkout.v1 đã được SyncEngine lấy từ Outbox.
 ///
@@ -30,7 +42,8 @@ class FirebaseCheckoutDispatcher {
   });
 
   Future<void> dispatch(PendingOperation operation) async {
-    if (operation.operationType != 'checkout.v1') {
+    if (operation.operationType != 'checkout.v1' &&
+        !OfflineBookOperation.supports(operation.operationType)) {
       throw StateError(
         'Loại thao tác chưa được hỗ trợ: '
         '${operation.operationType}',
@@ -39,6 +52,16 @@ class FirebaseCheckoutDispatcher {
 
     if (operation.status != 'syncing') {
       throw StateError('Outbox chưa được claim để đồng bộ.');
+    }
+    if (OfflineBookOperation.supports(operation.operationType)) {
+      final command = OfflineBookOperation.decode(operation);
+      final actor = await _authorizedActor(command.actorId);
+      await repository.transact(
+        (data, current) =>
+            _validateBusiness(() => command.apply(data, current)),
+        actor,
+      );
+      return;
     }
 
     final OfflineCheckoutCommand command;
@@ -64,10 +87,15 @@ class FirebaseCheckoutDispatcher {
       throw StateError('Hóa đơn không có sản phẩm.');
     }
 
+    final actor = await _authorizedActor(command.actorId);
+    await _dispatchCheckout(command, actor);
+  }
+
+  Future<Actor> _authorizedActor(String actorId) async {
     // Không sử dụng actorId trong JSON để tự cấp quyền.
     final currentUser = auth.currentUser;
 
-    if (currentUser == null || currentUser.uid != command.actorId) {
+    if (currentUser == null || currentUser.uid != actorId) {
       throw StateError('Tài khoản đăng nhập không khớp người tạo đơn.');
     }
 
@@ -103,7 +131,16 @@ class FirebaseCheckoutDispatcher {
     );
 
     actor.requireAccess();
+    if (auth.currentUser?.uid != actorId) {
+      throw StateError('Phiên đăng nhập đã thay đổi.');
+    }
+    return actor;
+  }
 
+  Future<void> _dispatchCheckout(
+    OfflineCheckoutCommand command,
+    Actor actor,
+  ) async {
     // Kiểm tra server trước khi tạo giao dịch.
     final before = await verifier.verify(command.requestId);
 
@@ -131,46 +168,46 @@ class FirebaseCheckoutDispatcher {
     //
     // Nếu kết quả transaction không rõ ràng, không retry
     // tại đây. Cần đối chiếu trước khi gửi lại.
-    final transaction = await repository.transact<Json>((
-      data,
-      transactionActor,
-    ) {
-      final lines = <CartLine>[];
+    final transaction = await repository.transact<Json>(
+      (data, transactionActor) => _validateBusiness(() {
+        final lines = <CartLine>[];
 
-      for (final line in command.lines) {
-        if (line.productId.isEmpty || line.area <= 0) {
-          throw StateError('Thông tin sản phẩm offline không hợp lệ.');
+        for (final line in command.lines) {
+          if (line.productId.isEmpty || line.area <= 0) {
+            throw StateError('Thông tin sản phẩm offline không hợp lệ.');
+          }
+
+          final product = data.product(line.productId);
+
+          if (product.price != line.quotedPrice ||
+              product.ratio != line.quotedRatio) {
+            throw StateError(
+              'Giá hoặc quy đổi của ${product.name} '
+              'đã thay đổi. Cần nhân viên xác nhận lại.',
+            );
+          }
+
+          lines.add(CartLine(line.productId, line.area, note: line.note));
         }
 
-        final product = data.product(line.productId);
-
-        if (product.price != line.quotedPrice ||
-            product.ratio != line.quotedRatio) {
-          throw StateError(
-            'Giá hoặc quy đổi của ${product.name} '
-            'đã thay đổi. Cần nhân viên xác nhận lại.',
-          );
-        }
-
-        lines.add(CartLine(line.productId, line.area, note: line.note));
-      }
-
-      return data.checkout(
-        requestId: command.requestId,
-        lines: lines,
-        customerId: command.customerId,
-        paid: command.paid,
-        ship: command.ship,
-        hold: command.hold,
-        negativeReason: command.negativeReason,
-        actor: transactionActor,
-      );
-    }, actor);
+        return data.checkout(
+          requestId: command.requestId,
+          lines: lines,
+          customerId: command.customerId,
+          paid: command.paid,
+          ship: command.ship,
+          discount: command.discount,
+          hold: command.hold,
+          negativeReason: command.negativeReason,
+          actor: transactionActor,
+        );
+      }),
+      actor,
+    );
 
     final order = transaction.result;
 
-    if (order['requestId'] != command.requestId ||
-        order['actor'] != currentUser.uid) {
+    if (order['requestId'] != command.requestId || order['actor'] != actor.id) {
       throw StateError('Hóa đơn trả về không khớp yêu cầu ban đầu.');
     }
 

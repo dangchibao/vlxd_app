@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 
 import '../domain/shop.dart';
+import '../data/local/shop_snapshot_cache.dart';
 import 'shop_controller.dart';
 
 String loginEmail(String input) {
@@ -33,8 +34,37 @@ class SessionController extends GetxController {
   final FirebaseAuth auth;
   final FirebaseFirestore firestore;
   final ShopController shop;
+  final ShopSnapshotCache? cache;
 
-  SessionController(this.auth, this.firestore, this.shop);
+  SessionController(this.auth, this.firestore, this.shop, {this.cache});
+
+  Future<Json?> _readOfflineProfile(String uid) async {
+    try {
+      return await cache?.loadProfile(uid);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _updateCachedProfile(String uid, Json? profile) async {
+    try {
+      if (profile == null ||
+          profile['active'] != true ||
+          profile['mustChangePassword'] != false ||
+          !['owner', 'sales'].contains(profile['role'])) {
+        await cache?.clear(uid);
+      } else {
+        await cache?.saveProfile(uid, {
+          'active': true,
+          'mustChangePassword': false,
+          'role': profile['role'],
+          'displayName': profile['displayName'],
+        });
+      }
+    } catch (_) {
+      // Local storage must not prevent an authenticated online session.
+    }
+  }
 
   StreamSubscription<User?>? _authSubscription;
   StreamSubscription<DocumentSnapshot<Json>>? _profile;
@@ -137,13 +167,30 @@ class SessionController extends GetxController {
 
     _profile = firestore
         .doc('users/${user.uid}')
-        .snapshots()
+        .snapshots(includeMetadataChanges: true)
         .listen(
           (snapshot) async {
             if (generation != _generation) return;
 
             final epoch = ++_profileEpoch;
-            final p = snapshot.data();
+            final fromCache = snapshot.metadata.isFromCache;
+            final p = fromCache
+                ? await _readOfflineProfile(user.uid)
+                : snapshot.data();
+            if (generation != _generation || epoch != _profileEpoch) return;
+            if (!fromCache) await _updateCachedProfile(user.uid, p);
+            if (generation != _generation || epoch != _profileEpoch) return;
+
+            // Wait for server authorization if no local lease exists.
+            if (fromCache && p == null) {
+              loading = false;
+              error = 'Cần kết nối mạng để xác nhận quyền trên thiết bị này.';
+              await shop.clearSession();
+              if (generation == _generation && epoch == _profileEpoch) {
+                _notifyStateChanged();
+              }
+              return;
+            }
 
             if (p == null ||
                 p['active'] != true ||
@@ -188,7 +235,8 @@ class SessionController extends GetxController {
 
               if (shop.actor?.id != user.uid ||
                   shop.actor?.role != role ||
-                  shop.actor?.displayName != displayName) {
+                  shop.actor?.displayName != displayName ||
+                  (!fromCache && shop.syncError != null)) {
                 _closeProtectedRoutes();
 
                 await shop.connect(
@@ -262,7 +310,9 @@ class SessionController extends GetxController {
     _notifyStateChanged();
 
     try {
+      final uid = auth.currentUser?.uid;
       await auth.signOut();
+      if (uid != null) await _updateCachedProfile(uid, null);
 
       error = null;
 

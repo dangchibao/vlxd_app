@@ -1,6 +1,5 @@
 import 'package:drift/drift.dart';
 
-import 'offline_checkout_command.dart';
 import 'outbox_reconciler.dart';
 import 'outbox_repository.dart';
 
@@ -45,15 +44,7 @@ class AutoRecoveryService {
               .get();
 
       final eligible = rows
-          .where((row) {
-            if (row.operationType != 'checkout.v1') return false;
-            try {
-              final command = OfflineCheckoutCommand.decode(row.payloadJson);
-              return command.requestId == row.id && command.actorId == actorId;
-            } catch (_) {
-              return false;
-            }
-          })
+          .where((row) => offlineOperationOwner(row) == actorId)
           .toList(growable: false);
 
       if (eligible.isEmpty) {

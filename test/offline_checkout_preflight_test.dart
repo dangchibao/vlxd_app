@@ -39,7 +39,11 @@ void main() {
   test('invalid request or missing identity is rejected', () {
     expect(OfflineCheckoutPreflight.isValid(make(requestId: 'x/y')), isFalse);
     expect(OfflineCheckoutPreflight.isValid(make(actorId: ' ')), isFalse);
-    expect(OfflineCheckoutPreflight.isValid(make(customerId: '')), isFalse);
+    expect(OfflineCheckoutPreflight.isValid(make(customerId: '')), isTrue);
+    expect(
+      OfflineCheckoutPreflight.isValid(make(customerId: '', paid: 99999)),
+      isFalse,
+    );
   });
 
   test('empty lines or nonpositive area are rejected', () {
@@ -93,7 +97,7 @@ void main() {
               area: 10000,
               note: '',
               quotedPrice: 100000,
-              quotedRatio: 0,
+              quotedRatio: -1,
             ),
           ],
         ),
