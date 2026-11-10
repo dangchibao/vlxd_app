@@ -25,10 +25,10 @@ class VlxdDisplayPreferences extends ChangeNotifier {
   bool get loaded => _loaded;
 
   double get fontFactor => switch (_fontSize) {
-        VlxdFontSize.normal => 1.0,
-        VlxdFontSize.large => 1.25,
-        VlxdFontSize.extraLarge => 1.45,
-      };
+    VlxdFontSize.normal => 1.0,
+    VlxdFontSize.large => 1.25,
+    VlxdFontSize.extraLarge => 1.45,
+  };
 
   Future<void> load() async {
     try {
@@ -116,9 +116,7 @@ class VlxdDisplayPreferences extends ChangeNotifier {
           vertical: verticalPadding,
         ),
       ),
-      listTileTheme: base.listTileTheme.copyWith(
-        dense: !_comfortableDensity,
-      ),
+      listTileTheme: base.listTileTheme.copyWith(dense: !_comfortableDensity),
     );
   }
 }
@@ -140,8 +138,10 @@ class VlxdDisplayPreferencesPanel extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Hiển thị và dễ thao tác',
-                  style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                'Hiển thị và dễ thao tác',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
               const SizedBox(height: 8),
               Text(
                 'Áp dụng cho thiết bị này. Chọn cỡ chữ rõ hơn, nút lớn hơn '

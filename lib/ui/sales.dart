@@ -89,7 +89,10 @@ class SalesPage extends StatelessWidget {
             ),
             Expanded(
               child: LayoutBuilder(
-                builder: (context, grid) => GridView.builder(
+                builder: (context, grid) => VlxdPagedGrid<Product>(
+                  key: ValueKey('sales-${c.query}'),
+                  items: c.visibleProducts,
+                  pageSize: 12,
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     // Man hinh hep: it cot hon de chu va nut khong tran.
@@ -105,9 +108,7 @@ class SalesPage extends StatelessWidget {
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,
                   ),
-                  itemCount: c.visibleProducts.length,
-                  itemBuilder: (context, i) {
-                    final p = c.visibleProducts[i];
+                  itemBuilder: (context, p) {
                     return panel(
                       InkWell(
                         onTap: () => confirmProduct(context, p),
@@ -1039,7 +1040,13 @@ class _CartPanelState extends State<CartPanel> {
                             setState(() => showDiscount = false);
                             reason.clear();
                             if (context.mounted) {
-                              await showOrder(context, order);
+                              // Keep the order-details dialog visible for existing
+                              // flows and tests; offer printing within that dialog.
+                              await showOrder(
+                                context,
+                                order,
+                                offerPrint: order['status'] == 'Đã bán',
+                              );
                             }
                           }),
                     icon: const Icon(Icons.check_circle_outline),
@@ -1086,6 +1093,46 @@ class _CartPanelState extends State<CartPanel> {
                               // This controller method atomically guards cart
                               // edits while the Outbox write is in progress.
                               // Never call SyncRuntime.drain() from this UI.
+                              // Snapshot for the temporary paper slip before the
+                              // cart can change. This is NOT a server invoice.
+                              final temporarySlip = <String, dynamic>{
+                                'id': 'TAM-$requestId',
+                                'status': 'Chờ đồng bộ',
+                                'customerId': customerId,
+                                'at': DateTime.now().toUtc().toIso8601String(),
+                                'lines': [
+                                  for (final line in c.cart)
+                                    <String, dynamic>{
+                                      'name': c.data
+                                          .product(line.productId)
+                                          .name,
+                                      'code': c.data
+                                          .product(line.productId)
+                                          .code,
+                                      'unit': c.data
+                                          .product(line.productId)
+                                          .unit,
+                                      'area': line.area,
+                                      'price': c.data
+                                          .product(line.productId)
+                                          .price,
+                                      'amount': lineMoney(
+                                        line.area,
+                                        c.data.product(line.productId).price,
+                                      ),
+                                      'note': line.note,
+                                    },
+                                ],
+                                'subtotal': subtotal - amounts.discount,
+                                'discount': amounts.discount,
+                                'ship': amounts.ship,
+                                'total':
+                                    subtotal - amounts.discount + amounts.ship,
+                              };
+                              final temporaryCustomer = invoiceCustomer(
+                                c.data,
+                                temporarySlip,
+                              );
                               await c.queueOfflineCheckout(
                                 outbox: Get.find<OutboxRepository>(),
                                 customerId: customerId,
@@ -1096,6 +1143,14 @@ class _CartPanelState extends State<CartPanel> {
                                 negativeReason: reason.text.trim(),
                               );
                               if (mounted) _refreshOutboxStatus(c);
+                              if (context.mounted) {
+                                await showCheckoutResult(
+                                  context,
+                                  temporarySlip,
+                                  customerName: temporaryCustomer,
+                                  provisional: true,
+                                );
+                              }
                               if (Get.isRegistered<AutoSyncCoordinator>()) {
                                 Get.find<AutoSyncCoordinator>()
                                     .checkNow()
@@ -1121,7 +1176,311 @@ class _CartPanelState extends State<CartPanel> {
   }
 }
 
-Future<void> showOrder(BuildContext context, Json original) => safeDialog<void>(
+// The same user-facing success layout is used for live and offline saves.
+// Offline is always labelled temporary; a queued operation is NOT a sale.
+Future<void> showCheckoutResult(
+  BuildContext context,
+  Json order, {
+  required String customerName,
+  bool provisional = false,
+}) => safeDialog<void>(
+  context: context,
+  builder: (dialogContext) => checkoutResultContent(
+    dialogContext,
+    order,
+    customerName: customerName,
+    provisional: provisional,
+  ),
+);
+
+Widget checkoutResultContent(
+  BuildContext dialogContext,
+  Json order, {
+  required String customerName,
+  bool provisional = false,
+}) {
+  final subtotal = (order['subtotal'] as num).toInt();
+  final discount = (order['discount'] as num? ?? 0).toInt();
+  final shipping = (order['ship'] as num? ?? 0).toInt();
+  final total = (order['total'] as num).toInt();
+  final lines = (order['lines'] as List).cast<Map>();
+  final totalCount = lines.fold<double>(
+    0,
+    (sum, line) => sum + (line['area'] as num) / 10000,
+  );
+  final width = MediaQuery.sizeOf(dialogContext).width;
+  final compact = width < 680;
+  Widget labelValue(String label, String value, {Color? valueColor}) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 7),
+    child: Row(
+      children: [
+        Expanded(child: Text(label, style: const TextStyle(fontSize: 14))),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: valueColor ?? ink,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  return Dialog(
+    clipBehavior: Clip.antiAlias,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    child: ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: 650,
+        maxHeight: MediaQuery.sizeOf(dialogContext).height * .9,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              color: const Color(0xFF0759BE),
+              padding: const EdgeInsets.fromLTRB(20, 12, 10, 12),
+              child: Row(
+                children: [
+                  Icon(
+                    provisional ? Icons.cloud_off : Icons.check_circle_outline,
+                    color: Colors.white,
+                    size: 27,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      provisional
+                          ? 'Đã lưu đơn offline'
+                          : 'Chốt đơn thành công',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: compact ? 19 : 23,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Đóng',
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    icon: const Icon(Icons.close, color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: provisional
+                          ? const Color(0xFFFFF7E8)
+                          : const Color(0xFFF0F7FF),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          provisional
+                              ? 'Đã lưu trên thiết bị — đang chờ đồng bộ Firebase'
+                              : 'Đơn hàng đã được lưu',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 17,
+                          ),
+                        ),
+                        const SizedBox(height: 7),
+                        Text(
+                          'Mã đơn: ${order['id']}',
+                          style: const TextStyle(
+                            color: blue,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        // Keep the exact label visible for existing widget tests.
+                        Text('Khách hàng: $customerName'),
+                        if (provisional)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 8),
+                            child: Text(
+                              'Đây là phiếu tạm, chưa xác nhận đơn bán và chưa trừ tồn kho trên máy chủ.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF895E16),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (compact) ...[
+                    labelValue('Số mặt hàng:', '${lines.length}'),
+                    labelValue(
+                      'Tổng số lượng:',
+                      NumberFormat('0.####', 'vi').format(totalCount),
+                    ),
+                    const Divider(),
+                  ] else
+                    Row(
+                      children: [
+                        Expanded(
+                          child: labelValue('Số mặt hàng:', '${lines.length}'),
+                        ),
+                        const SizedBox(width: 20),
+                        Expanded(
+                          child: labelValue(
+                            'Tổng số lượng:',
+                            NumberFormat('0.####', 'vi').format(totalCount),
+                          ),
+                        ),
+                      ],
+                    ),
+                  const Divider(height: 15),
+                  labelValue('Tổng tiền hàng:', money(subtotal + discount)),
+                  if (discount > 0)
+                    labelValue(
+                      'Giảm giá:',
+                      '-${money(discount)}',
+                      valueColor: const Color(0xFFC52931),
+                    ),
+                  if (shipping > 0)
+                    labelValue('Phí vận chuyển:', money(shipping)),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 16,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE3EFFD),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Tổng thanh toán:',
+                            style: TextStyle(
+                              color: Color(0xFF074CB7),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          money(total),
+                          style: TextStyle(
+                            color: const Color(0xFF074CB7),
+                            fontWeight: FontWeight.w900,
+                            fontSize: compact ? 20 : 25,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Wrap(
+                    spacing: 9,
+                    runSpacing: 9,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      OutlinedButton.icon(
+                        key: const ValueKey('checkout-preview-invoice'),
+                        icon: const Icon(Icons.preview_outlined),
+                        label: const Text('Xem trước hóa đơn'),
+                        onPressed: () => Navigator.of(dialogContext).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => Scaffold(
+                              appBar: AppBar(
+                                title: Text(
+                                  provisional
+                                      ? 'Xem phiếu tạm'
+                                      : 'Xem trước hóa đơn',
+                                ),
+                              ),
+                              body: PdfPreview(
+                                pdfFileName: provisional
+                                    ? 'phieu-tam-${order['id']}.pdf'
+                                    : 'hoa-don-${order['id']}.pdf',
+                                canChangeOrientation: false,
+                                canChangePageFormat: false,
+                                canDebug: false,
+                                build: (_) => PrintService.invoicePdf(
+                                  order,
+                                  customerName,
+                                  provisional: provisional,
+                                  demo: !Get.find<ShopController>().isLive,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        key: const ValueKey('checkout-confirm-print'),
+                        onPressed: () async {
+                          try {
+                            await Printing.layoutPdf(
+                              name: provisional
+                                  ? 'phieu-tam-${order['id']}.pdf'
+                                  : 'hoa-don-${order['id']}.pdf',
+                              onLayout: (_) => PrintService.invoicePdf(
+                                order,
+                                customerName,
+                                provisional: provisional,
+                                demo: !Get.find<ShopController>().isLive,
+                              ),
+                            );
+                          } catch (_) {
+                            if (dialogContext.mounted) {
+                              ScaffoldMessenger.maybeOf(dialogContext)
+                                  ?.showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Chưa in được phiếu. Đơn đã lưu vẫn giữ nguyên; có thể thử in lại.',
+                                      ),
+                                    ),
+                                  );
+                            }
+                          }
+                        },
+                        icon: const Icon(Icons.print_outlined),
+                        label: Text(
+                          provisional ? 'In phiếu tạm' : 'In hóa đơn',
+                        ),
+                      ),
+                      FilledButton.icon(
+                        key: const ValueKey('checkout-skip-print'),
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        icon: const Icon(Icons.check),
+                        label: const Text('Đóng'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+Future<void> showOrder(
+  BuildContext context,
+  Json original, {
+  bool offerPrint = false,
+}) => safeDialog<void>(
   context: context,
   builder: (ctx) => GetBuilder<ShopController>(
     builder: (c) {
@@ -1129,6 +1488,13 @@ Future<void> showOrder(BuildContext context, Json original) => safeDialog<void>(
         (x) => x['id'] == original['id'],
         orElse: () => original,
       );
+      if (offerPrint && o['status'] == 'Đã bán') {
+        return checkoutResultContent(
+          ctx,
+          o,
+          customerName: invoiceCustomer(c.data, o),
+        );
+      }
       return AlertDialog(
         title: Text('Đơn ${o['id']}'),
         content: SizedBox(
@@ -1139,6 +1505,12 @@ Future<void> showOrder(BuildContext context, Json original) => safeDialog<void>(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 badge(o['status']),
+                if (offerPrint && o['status'] == 'Đã bán') ...[
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Chốt đơn thành công! Bạn có muốn in phiếu bán hàng không?',
+                  ),
+                ],
                 const SizedBox(height: 12),
                 Text('Khách hàng: ${invoiceCustomer(c.data, o)}'),
                 Text('Ngày bán: ${day(o['soldAt'] ?? o['at'])}'),
@@ -1191,7 +1563,23 @@ Future<void> showOrder(BuildContext context, Json original) => safeDialog<void>(
           ),
         ),
         actions: [
-          if (o['status'] == 'Đã bán')
+          if (offerPrint && o['status'] == 'Đã bán') ...[
+            TextButton(
+              key: const ValueKey('checkout-skip-print'),
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Không in'),
+            ),
+            FilledButton.icon(
+              key: const ValueKey('checkout-confirm-print'),
+              onPressed: () async {
+                Navigator.of(ctx).pop();
+                await printSavedCheckoutInvoice(context, o);
+              },
+              icon: const Icon(Icons.print_outlined),
+              label: const Text('In phiếu'),
+            ),
+          ],
+          if (o['status'] == 'Đã bán' && !offerPrint)
             OutlinedButton.icon(
               onPressed: () => Navigator.of(ctx).push(
                 MaterialPageRoute<void>(
@@ -1230,3 +1618,35 @@ Future<void> showOrder(BuildContext context, Json original) => safeDialog<void>(
     },
   ),
 );
+
+/// Print the already-saved invoice. Never creates a new checkout or mutates data.
+Future<void> printSavedCheckoutInvoice(BuildContext context, Json order) async {
+  if (order['status'] != 'Đã bán') return;
+  try {
+    final controller = Get.find<ShopController>();
+    final customer = invoiceCustomer(controller.data, order);
+    await Printing.layoutPdf(
+      name: 'phieu-ban-${order['id']}.pdf',
+      onLayout: (_) =>
+          PrintService.invoicePdf(order, customer, demo: !controller.isLive),
+    );
+  } catch (_) {
+    if (!context.mounted) return;
+    await safeDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Không in được phiếu'),
+        content: const Text(
+          'Đơn vẫn đã được lưu. Mở Hóa đơn đã bán để in lại; '
+          'không cần chốt đơn lần nữa.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Đã hiểu'),
+          ),
+        ],
+      ),
+    );
+  }
+}

@@ -115,7 +115,12 @@ Future<void> openPayrollSettings(BuildContext context) async {
             child: Text('+ Tạo kỳ lương'),
           ),
         ),
-        for (final p in c.data.payroll)
+        if (!c.data.payroll.any((p) => p['archived'] != true))
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: Text('Chưa có kỳ lương nào.'),
+          ),
+        for (final p in c.data.payroll.where((p) => p['archived'] != true))
           SimpleDialogOption(
             onPressed: () => Navigator.pop(ctx, p['id']),
             child: Padding(

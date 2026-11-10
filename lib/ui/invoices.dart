@@ -20,6 +20,7 @@ class _InvoicesPageState extends State<InvoicesPage> {
   InvoicePayment payment = InvoicePayment.all;
   String period = 'Toàn bộ', sort = 'Mới nhất';
   DateTimeRange? range;
+  int invoicePage = 0;
 
   @override
   void dispose() {
@@ -65,6 +66,7 @@ class _InvoicesPageState extends State<InvoicesPage> {
     period = 'Toàn bộ';
     sort = 'Mới nhất';
     range = null;
+    invoicePage = 0;
   });
 
   Widget filters() => panel(
@@ -289,6 +291,14 @@ class _InvoicesPageState extends State<InvoicesPage> {
                       DataColumn(label: Text('Chi tiết')),
                     ],
                     rows: invoices
+                        .skip(
+                          math.min(
+                                invoicePage,
+                                math.max(0, (invoices.length - 1) ~/ 10),
+                              ) *
+                              10,
+                        )
+                        .take(10)
                         .map(
                           (o) => DataRow(
                             onSelectChanged: (_) => showOrder(context, o),
@@ -335,6 +345,15 @@ class _InvoicesPageState extends State<InvoicesPage> {
               ),
             ),
             padding: const EdgeInsets.all(12),
+          ),
+          VlxdPager(
+            total: invoices.length,
+            page: math.min(
+              invoicePage,
+              math.max(0, (invoices.length - 1) ~/ 10),
+            ),
+            pageSize: 10,
+            onChanged: (v) => setState(() => invoicePage = v),
           ),
           if (invoices.isEmpty)
             const EmptyState(

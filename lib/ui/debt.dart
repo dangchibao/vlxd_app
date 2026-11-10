@@ -10,6 +10,7 @@ class _DebtPageState extends State<DebtPage> {
   String query = '';
   String? selectedId;
   bool salary = false;
+  int customerPage = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -23,6 +24,10 @@ class _DebtPageState extends State<DebtPage> {
               ),
         )
         .toList();
+    customerPage = math.min(
+      customerPage,
+      math.max(0, (customers.length - 1) ~/ 10),
+    );
     final selected =
         customers.where((x) => x['id'] == selectedId).firstOrNull ??
         customers.firstOrNull;
@@ -224,7 +229,10 @@ class _DebtPageState extends State<DebtPage> {
         ),
         const SizedBox(height: 10),
         TextField(
-          onChanged: (v) => setState(() => query = v),
+          onChanged: (v) => setState(() {
+            query = v;
+            customerPage = 0;
+          }),
           decoration: const InputDecoration(
             hintText: 'Tìm tên khách hàng, số điện thoại…',
             prefixIcon: Icon(Icons.search),
@@ -245,7 +253,7 @@ class _DebtPageState extends State<DebtPage> {
               DataColumn(label: Text('Trạng thái')),
               DataColumn(label: Text('Thao tác')),
             ],
-            rows: customers.map((customer) {
+            rows: customers.skip(customerPage * 10).take(10).map((customer) {
               final book = c.data.customerBook(customer['id']);
               final total = book.receivable, paid = book.received;
               final owed = c.data.debt(customer['id']);
@@ -319,6 +327,12 @@ class _DebtPageState extends State<DebtPage> {
             }).toList(),
           ),
         ),
+        VlxdPager(
+          total: customers.length,
+          page: customerPage,
+          pageSize: 10,
+          onChanged: (v) => setState(() => customerPage = v),
+        ),
         if (customers.isEmpty)
           const EmptyState(
             'Chưa có khách hàng phù hợp',
@@ -355,6 +369,7 @@ class _DebtPageState extends State<DebtPage> {
         ),
       );
     }
+    final customerAddress = (customer['address'] ?? '').toString().trim();
     final orders = c.data.orders
         .where((o) => o['customerId'] == customer['id'])
         .toList();
@@ -452,7 +467,79 @@ class _DebtPageState extends State<DebtPage> {
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 12),
+          // Address lives outside the blue debt total card, and supports line breaks.
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              border: Border.all(color: const Color(0xFFDCE5F2)),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.location_on_outlined, color: blue, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Địa chỉ:',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        customerAddress.isEmpty
+                            ? 'Chưa nhập địa chỉ'
+                            : customerAddress,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Sửa địa chỉ / thông tin khách',
+                  onPressed: c.busy
+                      ? null
+                      : () => editCustomer(context, original: customer),
+                  icon: const Icon(Icons.edit_outlined, color: blue, size: 20),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (unpaid.isNotEmpty)
+            FilledButton.icon(
+              icon: const Icon(Icons.add_card),
+              label: const Text('Ghi nhận trả tiền'),
+              onPressed: () async {
+                if (unpaid.length == 1) {
+                  await collectPayment(context, unpaid.first);
+                  return;
+                }
+                if (!context.mounted) return;
+                await safeDialog<void>(
+                  context: context,
+                  builder: (ctx) => SimpleDialog(
+                    title: const Text('Chọn đơn cần thu tiền'),
+                    children: unpaid
+                        .map(
+                          (o) => SimpleDialogOption(
+                            child: Text(
+                              '${o['id']} • Có thể thu ${money(c.data.collectible(o))}',
+                            ),
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              collectPayment(context, o);
+                            },
+                          ),
+                        )
+                        .toList(),
+                  ),
+                );
+              },
+            ),
+          const SizedBox(height: 18),
           titleText('Lịch sử thanh toán', size: 18),
           const SizedBox(height: 12),
           _DebtPages(
@@ -531,37 +618,6 @@ class _DebtPageState extends State<DebtPage> {
                 ],
               ),
             ),
-          if (unpaid.isNotEmpty)
-            FilledButton.icon(
-              icon: const Icon(Icons.add_card),
-              label: const Text('Ghi nhận trả tiền'),
-              onPressed: () async {
-                if (unpaid.length == 1) {
-                  await collectPayment(context, unpaid.first);
-                  return;
-                }
-                if (!context.mounted) return;
-                await safeDialog<void>(
-                  context: context,
-                  builder: (ctx) => SimpleDialog(
-                    title: const Text('Chọn đơn cần thu tiền'),
-                    children: unpaid
-                        .map(
-                          (o) => SimpleDialogOption(
-                            child: Text(
-                              '${o['id']} • Có thể thu ${money(c.data.collectible(o))}',
-                            ),
-                            onPressed: () {
-                              Navigator.pop(ctx);
-                              collectPayment(context, o);
-                            },
-                          ),
-                        )
-                        .toList(),
-                  ),
-                );
-              },
-            ),
           const SizedBox(height: 12),
           hint(
             'Mở đơn hàng để sửa hoặc hủy lần thu; lịch sử gốc được giữ lại.',
@@ -636,6 +692,7 @@ class _DebtPageState extends State<DebtPage> {
               DataColumn(label: Text('Thao tác')),
             ],
             rows: c.data.payroll
+                .where((p) => p['archived'] != true)
                 .map(
                   (p) => DataRow(
                     cells: [
@@ -650,10 +707,27 @@ class _DebtPageState extends State<DebtPage> {
                         ),
                       ),
                       DataCell(
-                        IconButton(
-                          tooltip: 'Sửa lương / ghi chi',
-                          onPressed: () => editSalary(context, p),
-                          icon: const Icon(Icons.edit_outlined),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Sửa lương / ghi chi',
+                              onPressed: c.busy
+                                  ? null
+                                  : () => editSalary(context, p),
+                              icon: const Icon(
+                                Icons.edit_outlined,
+                                color: blue,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Xóa kỳ lương khỏi danh sách',
+                              onPressed: c.busy
+                                  ? null
+                                  : () => _archivePayroll(context, c, p),
+                              icon: const Icon(Icons.close, color: Colors.red),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -662,7 +736,7 @@ class _DebtPageState extends State<DebtPage> {
                 .toList(),
           ),
         ),
-        if (c.data.payroll.isEmpty)
+        if (!c.data.payroll.any((p) => p['archived'] != true))
           const EmptyState(
             'Chưa có kỳ lương',
             'Chủ cửa hàng tạo kỳ lương để theo dõi số tiền đã trả và còn phải trả.',
@@ -672,6 +746,37 @@ class _DebtPageState extends State<DebtPage> {
     ),
     padding: const EdgeInsets.all(16),
   );
+
+  Future<void> _archivePayroll(
+    BuildContext context,
+    ShopController c,
+    Json p,
+  ) async {
+    final approved = await confirm(
+      context,
+      'Xóa kỳ lương ${p['name']} • ${p['period']} khỏi danh sách?',
+      'Kỳ lương sẽ được ẩn, không xóa dữ liệu gốc. Thao tác được ghi nhật ký để đối chiếu.',
+    );
+    if (!approved) return;
+    await attempt(
+      () => c.change((d, actor) {
+        actor.requireAdmin();
+        final index = d.payroll.indexWhere((x) => x['id'] == p['id']);
+        if (index < 0 || jsonEncode(d.payroll[index]) != jsonEncode(p)) {
+          throw StateError(
+            'Kỳ lương đã thay đổi. Vui lòng mở lại trước khi xóa.',
+          );
+        }
+        d.payroll[index]['archived'] = true;
+        d.log(
+          actor,
+          'Ẩn kỳ lương',
+          p['id'],
+          '${p['name']} • ${p['period']} • Lương ${money(p['salary'])} • Đã ứng/trả ${money(p['advance'])}',
+        );
+      }),
+    );
+  }
 
   Widget _table(Widget table) => LayoutBuilder(
     builder: (context, box) => SingleChildScrollView(
@@ -713,7 +818,7 @@ class _DebtPagesState extends State<_DebtPages> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         widget.pageBuilder(start, math.min(start + pageSize, widget.count)),
-        if (pageCount > 1)
+        if (widget.count > 0)
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [

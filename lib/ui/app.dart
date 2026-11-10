@@ -50,6 +50,7 @@ part 'debt.dart';
 part 'invoices.dart';
 part 'finance_settings.dart';
 part 'audit_text.dart';
+part 'pagination.dart';
 
 const blue = Color(0xFF086EEB);
 const ink = Color(0xFF142D50);
@@ -500,20 +501,20 @@ class DashboardPage extends StatelessWidget {
                   'Chọn Bán hàng để thử tạo đơn đầu tiên.',
                   Icons.receipt_long_outlined,
                 ),
-              ...c.data.orders
-                  .take(6)
-                  .map(
-                    (o) => ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(o['id']),
-                      subtitle: Text('${day(o['at'])} • ${o['status']}'),
-                      trailing: Text(
-                        money(o['total']),
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      onTap: () => showOrder(context, o),
-                    ),
+              VlxdPagedList<Json>(
+                items: c.data.orders,
+                pageSize: 6,
+                itemBuilder: (o) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(o['id']),
+                  subtitle: Text('${day(o['at'])} • ${o['status']}'),
+                  trailing: Text(
+                    money(o['total']),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
+                  onTap: () => showOrder(context, o),
+                ),
+              ),
             ],
           ),
         ),

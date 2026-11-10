@@ -12,8 +12,10 @@ class InventoryPage extends StatelessWidget {
         const SizedBox(height: 8),
         hint('Theo dõi tồn thực tế, lượng đang giữ và giá vốn từng lô.'),
         const SizedBox(height: 12),
-        for (final p in c.data.products)
-          Padding(
+        VlxdPagedList<Product>(
+          items: c.data.products,
+          pageSize: 10,
+          itemBuilder: (p) => Padding(
             padding: const EdgeInsets.only(bottom: 9),
             child: panel(
               Column(
@@ -87,6 +89,7 @@ class InventoryPage extends StatelessWidget {
               ),
             ),
           ),
+        ),
         if (c.data.stockMoves.isNotEmpty)
           panel(
             Column(
@@ -374,8 +377,10 @@ class DeliveriesPage extends StatelessWidget {
             'Tạo đơn đã bán, sau đó gán đơn vào chuyến.',
             Icons.local_shipping_outlined,
           ),
-        ...c.data.deliveries.map(
-          (d) => Padding(
+        VlxdPagedList<Json>(
+          items: c.data.deliveries,
+          pageSize: 10,
+          itemBuilder: (d) => Padding(
             padding: const EdgeInsets.only(bottom: 9),
             child: panel(
               Column(
@@ -609,7 +614,8 @@ Future<void> editDelivery(BuildContext context, {Json? original}) async {
 Future<String?> editCustomer(BuildContext context, {Json? original}) async {
   final id = original?['id'] as String? ?? newId();
   final name = TextEditingController(text: original?['name'] ?? ''),
-      phone = TextEditingController(text: original?['phone'] ?? '');
+      phone = TextEditingController(text: original?['phone'] ?? ''),
+      address = TextEditingController(text: original?['address'] ?? '');
   final result = await safeDialog<String>(
     context: context,
     builder: (ctx) => AlertDialog(
@@ -622,6 +628,19 @@ Future<String?> editCustomer(BuildContext context, {Json? original}) async {
             children: [
               field(name, 'Họ tên / công trình'),
               field(phone, 'Số điện thoại'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: address,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Địa chỉ khách hàng',
+                  hintText: 'Có thể xuống dòng khi nhập địa chỉ',
+                  alignLabelWithHint: true,
+                  border: OutlineInputBorder(),
+                ),
+                textCapitalization: TextCapitalization.sentences,
+              ),
             ],
           ),
         ),
@@ -642,6 +661,7 @@ Future<String?> editCustomer(BuildContext context, {Json? original}) async {
                 'id': id,
                 'name': name.text.trim(),
                 'phone': phone.text.trim(),
+                'address': address.text.trim(),
               };
               final i = d.customers.indexWhere((p) => p['id'] == id);
               if (original != null &&
@@ -669,6 +689,7 @@ Future<String?> editCustomer(BuildContext context, {Json? original}) async {
   );
   name.dispose();
   phone.dispose();
+  address.dispose();
   return result;
 }
 
@@ -939,7 +960,7 @@ class _AuditPageState extends State<AuditPage> {
                   .contains(query.toLowerCase()),
         )
         .toList();
-    final pages = math.max(1, (rows.length / 20).ceil());
+    final pages = math.max(1, (rows.length / 10).ceil());
     page = math.min(page, pages - 1);
     return ListView(
       padding: vlxdPagePadding(context),
@@ -970,8 +991,8 @@ class _AuditPageState extends State<AuditPage> {
             Icons.history,
           ),
         ...rows
-            .skip(page * 20)
-            .take(20)
+            .skip(page * 10)
+            .take(10)
             .map(
               (a) => Padding(
                 padding: const EdgeInsets.only(bottom: 6),
@@ -1102,16 +1123,16 @@ class SettingsPage extends StatelessWidget {
                 title: Text('Tự gửi tin cho khách'),
                 subtitle: Text('Luôn tắt theo yêu cầu cửa hàng'),
               ),
-              ...c.data.notifications
-                  .take(5)
-                  .map(
-                    (n) => ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(n['event']),
-                      subtitle: Text('${day(n['at'])}\n${n['status']}'),
-                      isThreeLine: true,
-                    ),
-                  ),
+              VlxdPagedList<Json>(
+                items: c.data.notifications,
+                pageSize: 5,
+                itemBuilder: (n) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(n['event']),
+                  subtitle: Text('${day(n['at'])}\n${n['status']}'),
+                  isThreeLine: true,
+                ),
+              ),
             ],
           ),
         ),

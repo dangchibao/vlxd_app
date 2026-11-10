@@ -169,8 +169,11 @@ class ProductsPage extends StatelessWidget {
             'Thử mã hoặc tên khác.',
             Icons.search_off,
           ),
-        ...c.visibleProducts.map(
-          (p) => Padding(
+        VlxdPagedList<Product>(
+          key: ValueKey('catalog-${c.query}-${c.group}'),
+          items: c.visibleProducts,
+          pageSize: 10,
+          itemBuilder: (p) => Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: panel(
               LayoutBuilder(

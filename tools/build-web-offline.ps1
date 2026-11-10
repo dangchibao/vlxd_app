@@ -1,11 +1,16 @@
 param(
   [switch]$Emulator,
+  [switch]$ProductionAutoSync,
   [string]$Output = 'build/web'
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
 
+if ($Emulator -and $ProductionAutoSync) { throw 'Emulator and production auto-sync are mutually exclusive.' }
+if ($ProductionAutoSync -and $env:VLXD_PRODUCTION_BUILD_APPROVED -ne 'explicitly-reviewed') {
+  throw 'Live auto-sync Web build must be started via tools/build-production-autosync.ps1.'
+}
 if ($Emulator -and ($Output -eq 'build/web')) {
   throw 'Emulator builds must use a separate output directory.'
 }
@@ -21,6 +26,11 @@ $argsList = @(
 if ($Emulator) {
   $argsList += '--dart-define=USE_FIREBASE_EMULATOR=true'
   $argsList += '--dart-define=AUTO_SYNC_OUTBOX=true'
+} elseif ($ProductionAutoSync) {
+  # EXPLICIT opt-in. Called only by the guarded production builder.
+  $argsList += '--dart-define=USE_FIREBASE_EMULATOR=false'
+  $argsList += '--dart-define=AUTO_SYNC_OUTBOX=true'
+  $argsList += '--dart-define=ALLOW_PRODUCTION_AUTO_SYNC=true'
 } else {
   # Fail-safe: production binaries must never auto-dispatch without separate approval.
   $argsList += '--dart-define=AUTO_SYNC_OUTBOX=false'
