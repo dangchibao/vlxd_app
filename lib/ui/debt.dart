@@ -384,7 +384,7 @@ class _DebtPageState extends State<DebtPage> {
     );
     final unpaid = orders.where((o) => c.data.collectible(o) > 0).toList();
     final orderBalance = orders
-        .where((o) => o['status'] != 'Đã hủy')
+        .where((o) => !['Đã hủy', 'Đã trả hàng'].contains(o['status']))
         .fold<int>(
           0,
           (balance, o) => balance + (o['total'] as int) - ShopData.collected(o),
@@ -610,7 +610,7 @@ class _DebtPageState extends State<DebtPage> {
                       title: Text('${o['id']} • ${o['status']}'),
                       subtitle: Text(
                         'Tổng ${money(o['total'])} • Phí giao hàng ${money(o['ship'] ?? 0)}\n'
-                        'Đã thu ${money(ShopData.collected(o))} • Còn theo đơn ${money(o['status'] == 'Đã hủy' ? 0 : (o['total'] as int) - ShopData.collected(o))}',
+                        'Đã thu ${money(ShopData.collected(o))} • Còn theo đơn ${money(['Đã hủy', 'Đã trả hàng'].contains(o['status']) ? 0 : (o['total'] as int) - ShopData.collected(o))}',
                       ),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => showOrder(context, o),

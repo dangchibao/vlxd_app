@@ -6,9 +6,10 @@ import 'package:get/get.dart';
 
 import '../domain/shop.dart';
 import '../data/local/shop_snapshot_cache.dart';
+import '../data/store_profile.dart';
 import 'shop_controller.dart';
 
-String loginEmail(String input) {
+String loginEmail(String input, {String storeId = 'bay-hai'}) {
   final value = input.trim().toLowerCase();
 
   if (value.contains('@')) return value;
@@ -27,7 +28,7 @@ String loginEmail(String input) {
     throw ArgumentError('Nhập email, tên tài khoản hoặc số điện thoại hợp lệ.');
   }
 
-  return '$key@accounts.bayhai.invalid';
+  return '$key@accounts.${storeId == 'hai-soc' && key != 'admin' ? 'haisoc' : 'bayhai'}.invalid';
 }
 
 class SessionController extends GetxController {
@@ -35,8 +36,19 @@ class SessionController extends GetxController {
   final FirebaseFirestore firestore;
   final ShopController shop;
   final ShopSnapshotCache? cache;
+  final String storeId;
+  CollectionReference<Json> get profiles =>
+      firestore.collection(StoreProfile.profilesPath(storeId));
+  CollectionReference<Json> get accountAudit =>
+      firestore.collection(StoreProfile.auditPath(storeId));
 
-  SessionController(this.auth, this.firestore, this.shop, {this.cache});
+  SessionController(
+    this.auth,
+    this.firestore,
+    this.shop, {
+    this.cache,
+    this.storeId = 'bay-hai',
+  });
 
   Future<Json?> _readOfflineProfile(String uid) async {
     try {
@@ -165,8 +177,8 @@ class SessionController extends GetxController {
       return;
     }
 
-    _profile = firestore
-        .doc('users/${user.uid}')
+    _profile = profiles
+        .doc(user.uid)
         .snapshots(includeMetadataChanges: true)
         .listen(
           (snapshot) async {
@@ -288,7 +300,7 @@ class SessionController extends GetxController {
 
     try {
       await auth.signInWithEmailAndPassword(
-        email: loginEmail(account),
+        email: loginEmail(account, storeId: storeId),
         password: password,
       );
     } catch (e) {
@@ -347,9 +359,7 @@ class SessionController extends GetxController {
 
     await user.updatePassword(next);
 
-    await firestore.doc('users/${user.uid}').update({
-      'mustChangePassword': false,
-    });
+    await profiles.doc(user.uid).update({'mustChangePassword': false});
   }
 
   // ============================================================
@@ -399,5 +409,13 @@ class SessionController extends GetxController {
     onSyncAvailabilityChanged = null;
 
     super.onClose();
+  }
+
+  Future<void> shutdown() async {
+    ++_generation;
+    ++_profileEpoch;
+    await _authSubscription?.cancel();
+    await _profile?.cancel();
+    await shop.clearSession();
   }
 }

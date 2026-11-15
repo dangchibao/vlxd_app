@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:excel_community/excel_community.dart' hide Border;
 
 import 'dart:convert';
@@ -8,7 +6,9 @@ import 'dart:math' as math;
 import 'package:barcode_widget/barcode_widget.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -19,6 +19,8 @@ import 'package:uuid/uuid.dart';
 import '../controllers/shop_controller.dart';
 import '../controllers/session_controller.dart';
 import '../data/demo_repository.dart';
+import '../data/store_profile.dart';
+import '../data/data_generation.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -64,7 +66,9 @@ int whole(String v) => int.tryParse(v.replaceAll(' ', '').trim()) ?? -1;
 String newId() => const Uuid().v4();
 
 class BayHaiApp extends StatefulWidget {
-  const BayHaiApp({super.key});
+  const BayHaiApp({super.key, this.home, this.homeChanges});
+  final Widget? home;
+  final ValueListenable<Widget?>? homeChanges;
 
   @override
   State<BayHaiApp> createState() => _BayHaiAppState();
@@ -81,11 +85,23 @@ class _BayHaiAppState extends State<BayHaiApp> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: display,
+    animation: Listenable.merge([
+      display,
+      if (widget.homeChanges != null) widget.homeChanges!,
+    ]),
     builder: (context, _) => GetMaterialApp(
-      title: 'VLXD Bảy Hải',
+      title: (widget.homeChanges?.value ?? widget.home) == null
+          ? 'VLXD ${StoreProfile.current.name}'
+          : 'Chọn cửa hàng VLXD',
       debugShowCheckedModeBanner: false,
       theme: display.applyTheme(VlxdUiTheme.light),
+      locale: const Locale('vi', 'VN'),
+      supportedLocales: const [Locale('vi', 'VN'), Locale('en', 'US')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       builder: (context, child) {
         final media = MediaQuery.of(context);
         // Preserve the device's accessibility font setting, then apply
@@ -99,14 +115,26 @@ class _BayHaiAppState extends State<BayHaiApp> {
           child: child ?? const SizedBox.shrink(),
         );
       },
-      home: GetBuilder<ShopController>(
-        builder: (c) => Get.isRegistered<SessionController>()
-            ? const FirebaseGate()
-            : c.actor == null
-            ? const LoginPage()
-            : const ShopShell(),
-      ),
+      home: widget.homeChanges != null
+          ? ValueListenableBuilder<Widget?>(
+              valueListenable: widget.homeChanges!,
+              builder: (context, home, _) =>
+                  home ??
+                  KeyedSubtree(
+                    key: ValueKey(StoreProfile.current.id),
+                    child: _businessHome(),
+                  ),
+            )
+          : widget.home ?? _businessHome(),
     ),
+  );
+
+  Widget _businessHome() => GetBuilder<ShopController>(
+    builder: (c) => Get.isRegistered<SessionController>()
+        ? const FirebaseGate()
+        : c.actor == null
+        ? const LoginPage()
+        : const ShopShell(),
   );
 }
 
@@ -596,17 +624,29 @@ Widget field(
   bool number = false,
   bool moneyInput = false,
   bool enabled = true,
+  String? helperText,
+  String? hintText,
+  ValueChanged<String>? onChanged,
 }) => Padding(
-  padding: const EdgeInsets.only(bottom: 12),
+  padding: const EdgeInsets.only(bottom: 16),
   child: TextField(
     controller: c,
     enabled: enabled,
+    onChanged: onChanged,
     keyboardType: moneyInput
         ? TextInputType.number
         : number
         ? const TextInputType.numberWithOptions(decimal: true)
         : TextInputType.text,
     inputFormatters: moneyInput ? [const MoneyInputFormatter()] : null,
-    decoration: InputDecoration(labelText: label),
+    decoration: InputDecoration(
+      labelText: label,
+      hintText: hintText,
+      helperText: helperText,
+      helperMaxLines: 3,
+      floatingLabelBehavior: FloatingLabelBehavior.always,
+      alignLabelWithHint: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+    ),
   ),
 );

@@ -39,13 +39,53 @@ service cloud.firestore {
       allow update, delete: if false;
     }
     match /stores/{storeId} {
+      function storeProfilePath() {
+        return storeId == 'bay-hai'
+          ? /databases/$(database)/documents/users/$(request.auth.uid)
+          : /databases/$(database)/documents/stores/$(storeId)/members/$(request.auth.uid);
+      }
+      function staff() {
+        return signedIn() && storeId in ['bay-hai', 'hai-soc']
+          && get(storeProfilePath()).data.active == true
+          && get(storeProfilePath()).data.role in ['owner', 'sales']
+          && get(storeProfilePath()).data.mustChangePassword == false;
+      }
+      function owner() { return staff() && get(storeProfilePath()).data.role == 'owner'; }
+      match /members/{uid} {
+        allow get: if signedIn() && (uid == request.auth.uid || owner());
+        allow list: if owner();
+        allow create: if storeId == 'hai-soc' && owner() && uid != request.auth.uid
+          && request.resource.data.keys().hasOnly(['role','active','displayName','mustChangePassword'])
+          && request.resource.data.role in ['owner','sales','driver','other']
+          && request.resource.data.active is bool && request.resource.data.displayName is string
+          && request.resource.data.mustChangePassword is bool;
+        allow update: if storeId == 'hai-soc' && (
+          (owner() && uid != request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role','active','displayName','mustChangePassword'])
+            && request.resource.data.role in ['owner','sales','driver','other']
+            && request.resource.data.active is bool && request.resource.data.displayName is string
+            && request.resource.data.mustChangePassword is bool)
+          || (signedIn() && uid == request.auth.uid && resource.data.active == true
+            && resource.data.role in ['owner','sales']
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChangePassword'])
+            && request.resource.data.mustChangePassword == false));
+        allow delete: if false;
+      }
+      match /accountAudit/{id} {
+        allow read: if owner();
+        allow create: if owner() && request.resource.data.actor == request.auth.uid
+          && request.resource.data.target is string && request.resource.data.action is string
+          && request.resource.data.at == request.time;
+        allow update, delete: if false;
+      }
       function statePath() { return /databases/$(database)/documents/stores/$(storeId)/meta/state; }
       function revision() { return exists(statePath()) ? get(statePath()).data.revision : 0; }
       function nextState() { return getAfter(statePath()).data; }
       function validCommit() {
         let m = request.resource.data;
-        return storeId == 'bay-hai' && staff()
-          && m.keys().hasOnly(['revision', 'mutationId', 'updatedBy', 'updatedAt', 'auditId'])
+        return storeId in ['bay-hai','hai-soc'] && staff()
+          && m.keys().hasOnly(['revision', 'mutationId', 'updatedBy', 'updatedAt', 'auditId', 'generation'])
+          && m.get('generation', '') == (exists(statePath()) ? get(statePath()).data.get('generation', '') : '')
           && m.revision == revision() + 1
           && m.updatedBy == request.auth.uid && m.updatedAt == request.time
           && m.mutationId is string && m.auditId == 'commit-' + m.mutationId
@@ -55,7 +95,7 @@ service cloud.firestore {
       }
       function envelope(id) {
         let d = request.resource.data;
-        return staff() && storeId == 'bay-hai'
+        return staff() && storeId in ['bay-hai','hai-soc']
           && d.keys().hasOnly(['value', 'revision', 'mutationId', 'updatedBy', 'updatedAt'])
           && d.value is map && d.value.id == id
           && d.revision == revision() + 1 && d.revision == nextState().revision
@@ -63,19 +103,20 @@ service cloud.firestore {
           && d.updatedBy == request.auth.uid && d.updatedAt == request.time;
       }
       match /meta/state {
-        allow read: if staff() && storeId == 'bay-hai';
+        allow read: if staff() && storeId in ['bay-hai','hai-soc'];
         allow create, update: if validCommit();
         allow delete: if false;
       }
       match /{collection}/{id} {
-        allow read: if staff() && storeId == 'bay-hai'
+        allow read: if staff() && storeId in ['bay-hai','hai-soc']
           && collection in ['products', 'orders', 'customers', 'deliveries', 'payroll', 'audit', 'stockMoves', 'notifications', 'requests'];
         // Per-type rules below control writes; unmatched collections stay closed.
       }
       match /products/{id} {
         function product() {
           let p = request.resource.data.value;
-          return p.keys().hasOnly(['id','code','name','size','supplier','price','ratio','minimum','active','images','lots','note'])
+          return p.keys().hasOnly(['id','code','name','size','supplier','price','ratio','minimum','active','images','lots','note','unit'])
+            && (!('unit' in p) || (p.unit is string && p.unit.size() > 0 && p.unit.size() <= 40))
             && p.code is string && p.name is string && p.name.size() > 0
             && p.price is int && p.price > 0 && p.price <= 1000000000
             && p.ratio is int && p.ratio >= 0 && p.minimum is int && p.minimum >= 0

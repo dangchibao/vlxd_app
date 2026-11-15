@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <application
-        android:label="VLXD Bảy Hải"
+        android:label="VLXD Hai Sóc - Bảy Hải"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

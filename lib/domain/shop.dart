@@ -34,8 +34,12 @@ class Actor {
 
 class Product {
   String id, code, name, size, supplier, note;
+  String unitLabel;
   int price, ratio, minimum;
   bool active;
+  bool deleted;
+  // Hide zero-stock discontinued items from day-to-day screens; preserve history.
+  bool archivedFromLists;
   List<String> images;
   List<Json> lots;
   Product({
@@ -48,15 +52,20 @@ class Product {
     required this.ratio,
     this.minimum = 144000,
     this.active = true,
+    this.deleted = false,
+    this.archivedFromLists = false,
     this.note = '',
+    this.unitLabel = '',
     List<String>? images,
     List<Json>? lots,
   }) : images = images ?? [],
        lots = lots ?? [];
   // Existing size field also identifies bulk material units, preserving the
   // deployed document schema. All legacy tile sizes remain square metres.
-  bool get isBulk => size.trim() == 'm³';
-  String get unit => isBulk ? 'm³' : 'm²';
+  bool get isBulk =>
+      (unitLabel.trim().isNotEmpty ? unitLabel.trim() : size.trim()) == 'm³';
+  String get unit =>
+      unitLabel.trim().isNotEmpty ? unitLabel.trim() : (isBulk ? 'm³' : 'm²');
   bool get hasPackConversion => !isBulk && ratio > 0;
   int get quantityStep => hasPackConversion ? ratio : 10000;
   String get packUnit => hasPackConversion ? 'thùng' : unit;
@@ -73,12 +82,15 @@ class Product {
     'code': code,
     'name': name,
     'size': size,
+    if (unitLabel.trim().isNotEmpty) 'unit': unitLabel.trim(),
     'supplier': supplier,
     if (note.isNotEmpty) 'note': note,
     'price': price,
     'ratio': ratio,
     'minimum': minimum,
     'active': active,
+    if (deleted) 'deleted': true,
+    if (archivedFromLists) 'archivedFromLists': true,
     'images': images,
     'lots': lots,
   };
@@ -87,12 +99,15 @@ class Product {
     code: j['code'],
     name: j['name'],
     size: j['size'],
+    unitLabel: j['unit'] as String? ?? '',
     supplier: j['supplier'],
     note: j['note'] as String? ?? '',
     price: j['price'],
     ratio: j['ratio'],
     minimum: j['minimum'],
     active: j['active'],
+    deleted: j['deleted'] == true,
+    archivedFromLists: j['archivedFromLists'] == true,
     images: List<String>.from(j['images']),
     lots: (j['lots'] as List).map((x) => Json.from(x)).toList(),
   );
@@ -182,17 +197,125 @@ class ShopData {
     });
   }
 
+  // Normalized for searching and exact duplicate checking (including archived items).
+  // Intentionally keep product identity/ID independent from the human-readable code.
+  static String normalizeProductText(String value) {
+    var text = value.trim().toLowerCase();
+    const accented = [
+      'àáạảãâầấậẩẫăằắặẳẵ',
+      'èéẹẻẽêềếệểễ',
+      'ìíịỉĩ',
+      'òóọỏõôồốộổỗơờớợởỡ',
+      'ùúụủũưừứựửữ',
+      'ỳýỵỷỹ',
+      'đ',
+    ];
+    const ascii = 'aeiouyd';
+    for (var i = 0; i < accented.length; i++) {
+      for (final ch in accented[i].split('')) {
+        text = text.replaceAll(ch, ascii[i]);
+      }
+    }
+    return text.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
+  }
+
+  String nextProductCode() {
+    final used = products.map((p) => p.code.toUpperCase()).toSet();
+    var number = 1;
+    for (final p in products) {
+      final match = RegExp(r'^SP(\d+)$', caseSensitive: false).firstMatch(p.code);
+      if (match != null) {
+        final candidate = int.tryParse(match.group(1) ?? '') ?? 0;
+        if (candidate >= number) number = candidate + 1;
+      }
+    }
+    while (used.contains('SP${number.toString().padLeft(4, '0')}')) {
+      number++;
+    }
+    return 'SP${number.toString().padLeft(4, '0')}';
+  }
+
+  bool canDeleteUnusedProduct(String id) {
+    final p = product(id);
+    if (p.deleted || p.lots.isNotEmpty || p.stock != 0 || p.reserved != 0) return false;
+    // Be conservative: a product with any stock movement/order/delivery/reference
+    // is not eligible for hard deletion, even if its stock is currently zero.
+    bool references(List<Json> rows) => rows.any((row) =>
+        jsonEncode(row).contains(id) || jsonEncode(row).contains(p.code));
+    return !references(orders) &&
+        !references(deliveries) &&
+        !references(stockMoves);
+  }
+
+  void deleteUnusedProduct(String id, Actor actor) {
+    actor.requireAdmin();
+    if (!canDeleteUnusedProduct(id)) {
+      throw StateError(
+        'Không thể xóa hẳn: sản phẩm có lô hàng, tồn kho hoặc lịch sử. '
+        'Hãy dùng Ngừng kinh doanh để giữ đối chiếu.',
+      );
+    }
+    final p = product(id);
+    // Soft-delete (tombstone) is required: live Firestore transactions
+    // explicitly reject physical document deletion. No inventory is touched.
+    p.active = false;
+    p.deleted = true;
+    log(actor, 'Xóa sản phẩm chưa sử dụng', p.code,
+        'Ẩn vĩnh viễn khỏi danh sách; giữ bản ghi kỹ thuật để an toàn đồng bộ.');
+  }
+
+  // An archived item is NOT deleted: orders, lot history and movements remain.
+  // Only unused stock quantity and reservations are required to be zero.
+  // Unlike deleting a product, archiving allows historical lots to remain.
+  void archiveDiscontinuedProduct(String id, Actor actor) {
+    actor.requireAdmin();
+    final p = product(id);
+    if (p.deleted || p.archivedFromLists || p.active ||
+        p.stock != 0 || p.reserved != 0) {
+      throw StateError(
+        'Chỉ ẩn được sản phẩm đã ngừng kinh doanh, tồn kho và giữ hàng đều bằng 0.',
+      );
+    }
+    p.archivedFromLists = true;
+    log(actor, 'Ẩn sản phẩm hết tồn', p.code,
+        'Ẩn khỏi Hàng hóa và Kho; giữ mã, lô, kiểm kê và lịch sử giao dịch.');
+  }
+
+  void unarchiveDiscontinuedProduct(String id, Actor actor) {
+    actor.requireAdmin();
+    final p = product(id);
+    if (p.deleted || !p.archivedFromLists) {
+      throw StateError('Sản phẩm không ở trạng thái đã ẩn.');
+    }
+    p.archivedFromLists = false;
+    log(actor, 'Khôi phục sản phẩm đã ẩn', p.code,
+        'Hiển thị lại trong danh sách ngừng kinh doanh và Kho.');
+  }
+
+  void restoreProduct(String id, Actor actor) {
+    actor.requireAccess();
+    final p = product(id);
+    if (p.deleted) throw StateError('Sản phẩm đã xóa khỏi danh sách.');
+    if (p.archivedFromLists) {
+      throw StateError('Hãy khôi phục sản phẩm đã ẩn trước khi kinh doanh lại.');
+    }
+    if (p.active) return;
+    p.active = true;
+    log(actor, 'Kinh doanh lại', p.code,
+        'Khôi phục sản phẩm cũ, giữ nguyên mã và các lô hàng.');
+  }
+
   void saveProduct(Product p, Actor actor, {Product? expected}) {
     actor.requireAccess();
-    if (expected != null &&
-        expected.unit != p.unit &&
-        (expected.stock != 0 ||
-            expected.reserved != 0 ||
-            orders.any(
-              (o) => (o['lines'] as List).any((l) => l['productId'] == p.id),
-            ))) {
+    // Never reinterpret historical stock quantities in a new unit.
+    // The old check only ran when p.unitLabel was empty and missed BAO -> CÂY.
+    if (expected != null && expected.unit.toLowerCase().trim() != p.unit.toLowerCase().trim() &&
+        (expected.lots.isNotEmpty ||
+            orders.any((o) => (o['lines'] as List).any((l) => l['productId'] == p.id)) ||
+            stockMoves.any((m) => m['product'] == expected.code))) {
       throw StateError(
-        'Sản phẩm đã có tồn hoặc lịch sử bán. Tạo mã khác khi đổi giữa m² và m³.',
+        'Không được đổi đơn vị khi sản phẩm có lô hoặc lịch sử nhập/xuất/bán. '
+        'Dùng quy trình chuyển đổi có chứng từ, không tự đổi số tồn.',
       );
     }
     if (expected != null &&
@@ -218,6 +341,21 @@ class ShopData {
       (x) => x.id != p.id && x.code.toLowerCase() == p.code.toLowerCase(),
     )) {
       throw StateError('Mã sản phẩm đã tồn tại.');
+    }
+    // Prevent two identities for the same name, unit and size, even when one
+    // item is archived. Different units/sizes can legitimately be different.
+    final sameProduct = products.where((x) =>
+        x.id != p.id && !x.deleted &&
+        normalizeProductText(x.name) == normalizeProductText(p.name) &&
+        normalizeProductText(x.unit) == normalizeProductText(p.unit) &&
+        normalizeProductText(x.size) == normalizeProductText(p.size));
+    if (sameProduct.isNotEmpty) {
+      final existing = sameProduct.first;
+      throw StateError(
+        'Sản phẩm tương tự đã có: ${existing.name} '
+        '(mã ${existing.code}, ${existing.active ? 'đang bán' : 'ngừng kinh doanh'}). '
+        'Hãy tìm và sửa hoặc khôi phục sản phẩm cũ; không tạo mã mới.',
+      );
     }
     final index = products.indexWhere((x) => x.id == p.id);
     final before = index < 0
@@ -249,6 +387,27 @@ class ShopData {
     );
   }
 
+  // Assign permanent, per-product readable lot numbers, once only.
+  // Legacy UUIDs and their transaction references are never changed.
+  void assignMissingLotNumbers(String productId, Actor actor) {
+    actor.requireAdmin();
+    final p = product(productId);
+    final used = p.lots.map((l) => l['lotNumber']).whereType<int>().toSet();
+    var next = 1;
+    var assigned = 0;
+    for (final lot in p.lots) {
+      if (lot['lotNumber'] is int && (lot['lotNumber'] as int) > 0) continue;
+      while (used.contains(next)) { next++; }
+      lot['lotNumber'] = next;
+      used.add(next);
+      assigned++;
+    }
+    if (assigned > 0) {
+      log(actor, 'Cố định mã lô', p.code,
+          'Đã cấp số cố định cho $assigned lô, không thay UUID gốc.');
+    }
+  }
+
   void receive(
     String id,
     int area,
@@ -268,8 +427,13 @@ class ShopData {
       );
     }
     final p = product(id);
+    final assigned = p.lots.map((l) => l['lotNumber']).whereType<int>();
+    final nextLotNumber = assigned.isEmpty ? p.lots.length + 1 :
+        (assigned.reduce(max) + 1 > p.lots.length + 1
+            ? assigned.reduce(max) + 1 : p.lots.length + 1);
     p.lots.add({
       'id': lotId,
+      'lotNumber': nextLotNumber,
       'date': date.toIso8601String(),
       'area': area,
       // Giu nguyen so luong nhap ban dau khi ban hang tru ton kho.
@@ -471,6 +635,69 @@ class ShopData {
     return order;
   }
 
+  /// Full return of a *sold* order, only by owner. Reinstates each original
+  /// lot allocation and records an external/manual cash refund. No deletion.
+  /// Partial returns and automatic bank transfer are intentionally unsupported.
+  void returnSoldOrder(String orderId, String reason, Actor actor, {
+    required bool cashWasReturned,
+  }) {
+    actor.requireAdmin();
+    if (reason.trim().length < 5) {
+      throw ArgumentError('Nhập lý do trả hàng ít nhất 5 ký tự.');
+    }
+    final o = orders.firstWhere((x) => x['id'] == orderId);
+    if (o['status'] != 'Đã bán') {
+      throw StateError('Chỉ trả toàn bộ đơn đã bán, chưa trả lần nào.');
+    }
+    final paid = collected(o);
+    if (paid > 0 && !cashWasReturned) {
+      throw StateError('Đơn đã thu tiền. Phải xác nhận đã hoàn tiền ngoài phần mềm.');
+    }
+    if (deliveries.any((d) =>
+        (d['orderId'] == orderId || d['id'] == 'delivery-$orderId') &&
+        d['status'] != 'Đã hủy')) {
+      throw StateError('Đơn có giao hàng liên quan: xử lý giao hàng trước khi trả.');
+    }
+    _checkBookChange(o['customerId'] as String,
+        -(o['total'] as int), -paid);
+    // Validate ALL references before mutating any quantity.
+    final restocks = <({Product product, Json lot, int quantity})>[];
+    for (final raw in o['lines'] as List) {
+      final line = Json.from(raw as Map);
+      final p = product(line['productId'] as String);
+      for (final item in line['allocations'] as List) {
+        final allocation = Json.from(item as Map);
+        final matches = p.lots.where((l) => l['id'] == allocation['lot']);
+        if (matches.length != 1 || (allocation['area'] as int) <= 0) {
+          throw StateError('Thiếu lô gốc của $orderId; không được cộng tồn bằng tay.');
+        }
+        restocks.add((product: p, lot: matches.single,
+            quantity: allocation['area'] as int));
+      }
+    }
+    final at = DateTime.now().toUtc().toIso8601String();
+    for (final record in restocks) {
+      record.lot['area'] = (record.lot['area'] as int) + record.quantity;
+      stockMoves.insert(0, {
+        'id': const Uuid().v4(), 'product': record.product.code,
+        'area': record.quantity, 'type': 'Trả hàng đã bán',
+        'lot': record.lot['id'], 'orderId': orderId,
+        'actor': actor.id, 'at': at,
+      });
+    }
+    o['status'] = 'Đã trả hàng';
+    o['returnId'] = const Uuid().v4();
+    o['returnedAt'] = at;
+    o['returnedBy'] = actor.id;
+    o['returnReason'] = reason.trim();
+    // refund records cash actually paid back, NOT a scheduled payout.
+    o['refund'] = paid;
+    o['refundMethod'] = paid == 0 ? 'Không phát sinh' : 'Đã hoàn thủ công';
+    log(actor, 'Trả toàn bộ đơn và hoàn tiền', orderId,
+        'Trả ${restocks.length} phân bổ lô, hoàn $paid đ (ngoài ứng dụng). '
+        'Lý do: ${reason.trim()}');
+  }
+
   static int collected(Json order) => (order['payments'] as List)
       .where((p) => p['voided'] != true)
       .fold<int>(0, (v, p) => v + (p['amount'] as int));
@@ -532,8 +759,8 @@ class ShopData {
   ) {
     actor.requireAccess();
     final o = orders.firstWhere((o) => o['id'] == orderId);
-    if (o['status'] == 'Đã hủy') {
-      throw StateError('Không sửa thu tiền của đơn đã hủy.');
+    if (['Đã hủy', 'Đã trả hàng'].contains(o['status'])) {
+      throw StateError('Không sửa thu tiền của đơn đã hủy hoặc trả hàng.');
     }
     final payments = o['payments'] as List;
     if (payments.any(
@@ -638,7 +865,7 @@ class ShopData {
   ({int receivable, int received}) customerBook(String customerId) {
     final customer = customers.where((c) => c['id'] == customerId).firstOrNull;
     final sold = orders.where(
-      (o) => o['customerId'] == customerId && o['status'] != 'Đã hủy',
+      (o) => o['customerId'] == customerId && !['Đã hủy', 'Đã trả hàng'].contains(o['status']),
     );
     return (
       receivable:
@@ -657,7 +884,7 @@ class ShopData {
 
   /// The order balance and the adjusted customer book both bound a receipt.
   int collectible(Json order) {
-    if (order['status'] == 'Đã hủy') return 0;
+    if (['Đã hủy', 'Đã trả hàng'].contains(order['status'])) return 0;
     final due = (order['total'] as int) - collected(order);
     final customerId = order['customerId'] as String;
     return max(0, customerId.isEmpty ? due : min(due, debt(customerId)));
@@ -757,8 +984,8 @@ class ShopData {
   ) {
     actor.requireAccess();
     final o = orders.firstWhere((o) => o['id'] == orderId);
-    if (o['status'] == 'Đã hủy') {
-      throw StateError('Không thu thêm tiền cho đơn đã hủy.');
+    if (['Đã hủy', 'Đã trả hàng'].contains(o['status'])) {
+      throw StateError('Không thu thêm tiền cho đơn đã hủy hoặc trả hàng.');
     }
     final payments = o['payments'] as List;
     if (payments.any((p) => p['id'] == paymentId)) return;

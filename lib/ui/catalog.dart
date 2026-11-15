@@ -149,7 +149,7 @@ class ProductsPage extends StatelessWidget {
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: ['Tất cả', '30×60', '60×60', '80×80', 'm³']
+          children: ['Tất cả', '30×60', '60×60', '80×80']
               .map(
                 (g) => ChoiceChip(
                   label: Text(g),
@@ -330,6 +330,22 @@ Future<void> archiveProductDialog(BuildContext context, Product p) async {
   });
 }
 
+List<Product> _similarNamedProducts(ShopData data, String input, String excludeId) {
+  final normalized = ShopData.normalizeProductText(input);
+  if (normalized.length < 3) return const [];
+  final pieces = normalized.split(' ').where((p) => p.length >= 3).toSet();
+  return data.products.where((p) {
+    if (p.id == excludeId || p.deleted) return false;
+    final title = ShopData.normalizeProductText(p.name);
+    if (title == normalized || title.contains(normalized) ||
+        normalized.contains(title)) {
+      return true;
+    }
+    final common = pieces.intersection(title.split(' ').toSet()).length;
+    return pieces.length >= 2 && common >= 2;
+  }).take(4).toList();
+}
+
 Future<void> editProduct(BuildContext context, {Product? original}) async {
   final c = Get.find<ShopController>();
   final p = original == null
@@ -346,7 +362,8 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
       : Product.fromJson(jsonDecode(jsonEncode(original.toJson())));
   final code = TextEditingController(text: p.code),
       name = TextEditingController(text: p.name),
-      size = TextEditingController(text: p.size),
+      size = TextEditingController(text: p.size.trim() == 'm³' ? '' : p.size),
+      unit = TextEditingController(text: p.unit),
       supplier = TextEditingController(text: p.supplier),
       price = TextEditingController(text: '${p.price}'),
       ratio = TextEditingController(
@@ -369,17 +386,52 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                field(code, 'Mã sản phẩm / mã vạch'),
-                field(name, 'Tên sản phẩm'),
-                field(size, 'Kích thước (tùy chọn; nhập m³ nếu bán theo khối)'),
+                field(
+                  code,
+                  'Mã sản phẩm / mã vạch',
+                  helperText:
+                      'Mã gợi ý tự động; có thể sửa nếu cần. Không tạo mã khác cho một sản phẩm đã tồn tại.',
+                ),
+                field(name, 'Tên sản phẩm', onChanged: (_) => set(() {})),
+                if (_similarNamedProducts(c.data, name.text, p.id).isNotEmpty) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF7E5),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Đã có sản phẩm có tên gần giống:',
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        for (final other in _similarNamedProducts(c.data, name.text, p.id))
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text('${other.name} • ${other.code} • ${other.unit}'
+                                ' • ${other.active ? 'Đang bán' : 'Ngừng kinh doanh'}'),
+                          ),
+                        const Text('Kiểm tra và dùng lại sản phẩm cũ nếu trùng thật.'),
+                      ],
+                    ),
+                  ),
+                ],
+                field(size, 'Kích thước (tùy chọn)'),
+                field(unit, 'Đơn vị (tự nhập, ví dụ: m², m³, tấm, bao)'),
                 field(supplier, 'Nhà cung cấp (tùy chọn)'),
-                field(price, 'Giá bán đ/đơn vị (m² hoặc m³)', moneyInput: true),
+                field(price, 'Giá bán đ/đơn vị', moneyInput: true),
                 field(
                   ratio,
-                  'm² trong 1 thùng (không rõ thì để trống)',
+                  'Số đơn vị trong 1 thùng (không rõ thì để trống)',
                   number: true,
                 ),
-                field(minimum, 'Ngưỡng sắp hết (tùy chọn)', number: true),
+                field(
+                  minimum,
+                  'Cảnh báo khi tồn kho còn (tùy chọn)',
+                  number: true,
+                ),
                 TextField(
                   controller: note,
                   minLines: 2,
@@ -390,11 +442,14 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
                     hintText: 'Ví dụ: 5 tấm đá, người bán tự tính tổng 3,6 m². Kích thước chưa rõ có thể bổ sung sau.',
                     helperText: 'Thông tin để đối chiếu; app không tự tính từ nội dung lưu ý.',
                     helperMaxLines: 3,
+                    floatingLabelBehavior: FloatingLabelBehavior.always,
+                    alignLabelWithHint: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 18),
                   ),
                 ),
                 const SizedBox(height: 12),
                 hint(
-                  'Số lượng mua do người bán tự tính và nhập khi bán. Bỏ trống quy đổi thì nhập trực tiếp theo m² hoặc m³.',
+                  'Số lượng mua do người bán tự tính và nhập theo đơn vị đã điền. Thay tên đơn vị không tự quy đổi tồn kho.',
                 ),
                 const SizedBox(height: 12),
                 hint(
@@ -483,7 +538,7 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
                   ...p.lots.map(
                     (l) => ListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: Text(l['id']),
+                      title: Text(_inventoryLotLabel(p, l)),
                       subtitle: Text(
                         '${day(l['date'])}\nTồn ${area(l['area'])} ${p.unit} • Giá vốn ${money(l['cost'])}/${p.unit}',
                       ),
@@ -538,11 +593,15 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
                     p.code = code.text.trim();
                     p.name = name.text.trim();
                     p.size = size.text.trim();
+                    if (unit.text.trim().isEmpty ||
+                        unit.text.trim().length > 40) {
+                      throw ArgumentError('Nhập đơn vị từ 1 đến 40 ký tự.');
+                    }
+                    p.unitLabel = unit.text.trim();
                     p.supplier = supplier.text.trim();
                     p.note = note.text.trim();
                     p.price = whole(price.text);
                     p.ratio = areaUnits(r);
-                    if (p.isBulk) p.ratio = 10000;
                     p.minimum = areaUnits(m);
                     set(() => saving = true);
                     try {
@@ -564,6 +623,7 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
     code,
     name,
     size,
+    unit,
     supplier,
     price,
     ratio,

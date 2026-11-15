@@ -305,7 +305,7 @@ class _InvoicesPageState extends State<InvoicesPage> {
                             cells: [
                               DataCell(
                                 Text(
-                                  o['id'],
+                                  o['status'] == 'Đã trả hàng' ? '${o['id']} • Đã trả hàng' : o['id'],
                                   style: const TextStyle(
                                     color: blue,
                                     fontWeight: FontWeight.w700,
@@ -319,7 +319,7 @@ class _InvoicesPageState extends State<InvoicesPage> {
                               DataCell(
                                 Text(
                                   money(
-                                    (o['total'] as int) - ShopData.collected(o),
+                                    o['status'] == 'Đã trả hàng' ? 0 : (o['total'] as int) - ShopData.collected(o),
                                   ),
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w700,

@@ -9,6 +9,7 @@ import 'offline_checkout_command.dart';
 import 'offline_checkout_preflight.dart';
 import 'offline_book_operation.dart';
 import 'sync_failure.dart';
+import '../store_profile.dart';
 
 T _validateBusiness<T>(T Function() action) {
   try {
@@ -101,7 +102,7 @@ class FirebaseCheckoutDispatcher {
 
     // Đọc hồ sơ từ server, không dựa vào cache.
     final profileSnapshot = await repository.firestore
-        .collection('users')
+        .collection(StoreProfile.profilesPath(repository.storeId))
         .doc(currentUser.uid)
         .get(const GetOptions(source: Source.server));
 

@@ -134,6 +134,19 @@ List<List<Object?>> _accPaymentRows(ShopData data) {
         _accString(p['voidReason']),
       ]);
     }
+    // A manual refund is a cash OUT, not another receipt or silent deletion.
+    if (o['status'] == 'Đã trả hàng' && _accInt(o['refund']) > 0) {
+      rows.add([
+        _accString(o['id']),
+        _accString(o['returnId']),
+        _accDate(o['returnedAt']),
+        _accCustomer(data, order),
+        -_accInt(o['refund']),
+        'Hoàn tiền',
+        _accString(o['returnedBy']),
+        _accString(o['returnReason']),
+      ]);
+    }
   }
   return rows;
 }
@@ -158,7 +171,7 @@ List<List<Object?>> _accStockRows(ShopData data) => [
       p.reserved / 10000,
       p.available / 10000,
       p.price,
-      p.available <= p.minimum ? 'Tồn thấp' : '',
+      p.available <= 0 ? 'Hết hàng' : (p.minimum > 0 && p.available <= p.minimum ? 'Tồn thấp' : ''),
     ],
 ];
 
@@ -308,8 +321,9 @@ _AccLotResolution _accResolveLot(ShopData data, Product product, Json lot) {
         final lines = order['lines'];
         if (lines is! List) continue;
         for (final line in lines) {
-          if (line is! Map || _accString(line['productId']) != product.id)
+          if (line is! Map || _accString(line['productId']) != product.id) {
             continue;
+          }
           final allocations = line['allocations'];
           if (allocations is! List) continue;
           for (final allocation in allocations) {
@@ -413,7 +427,8 @@ class _AccountingPageState extends State<AccountingPage> {
   }
 
   final Map<String, _AccDraft> drafts = {};
-  static const _prefsKey = 'vlxd_accounting_working_notes_v1';
+  final _prefsKey =
+      'vlxd_accounting_notes_${storeDataGeneration}_${StoreProfile.current.id}';
   static const _tabs = [
     'Tổng hợp',
     'Sổ bán hàng',
@@ -463,13 +478,15 @@ class _AccountingPageState extends State<AccountingPage> {
     if (d == null) return false;
     if (period == 'Tất cả') return true;
     if (period == 'Năm') return d.year == month.year;
-    if (period == 'Quý')
+    if (period == 'Quý') {
       return d.year == month.year &&
           ((d.month - 1) ~/ 3) == ((month.month - 1) ~/ 3);
-    if (period == 'Ngày')
+    }
+    if (period == 'Ngày') {
       return d.year == month.year &&
           d.month == month.month &&
           d.day == month.day;
+    }
     return d.year == month.year && d.month == month.month;
   }
 
@@ -811,7 +828,7 @@ class _AccountingPageState extends State<AccountingPage> {
       final stockMoves = _filteredRows(_accMovesRows(c.data), dateColumn: 0);
       final purchaseSummary = _accPurchaseSummary(c.data, _inPeriod);
       final meta = <List<Object?>>[
-        ['VLXD Bảy Hải', 'SỔ QUẢN LÝ KINH DOANH'],
+        ['VLXD ${StoreProfile.current.name}', 'SỔ QUẢN LÝ KINH DOANH'],
         ['Kỳ xem', period],
         ['Ngày đang chọn', DateFormat('dd/MM/yyyy').format(month)],
         ['Tìm kiếm', keyword],
@@ -1455,8 +1472,9 @@ class _AccountingPageState extends State<AccountingPage> {
                                 : 'Gạch tạm',
                             onPressed: () => setState(() {
                               final key = _lotKey(row);
-                              if (!_temporaryLots.add(key))
+                              if (!_temporaryLots.add(key)) {
                                 _temporaryLots.remove(key);
+                              }
                             }),
                             icon: Icon(
                               _temporaryLots.contains(_lotKey(row))
@@ -1621,11 +1639,12 @@ class _AccountingPageState extends State<AccountingPage> {
                         firstDate: DateTime(2020),
                         lastDate: DateTime(2100),
                       );
-                      if (d != null)
+                      if (d != null) {
                         setState(() {
                           month = DateTime(d.year, d.month);
                           _page = 0;
                         });
+                      }
                     },
                     icon: const Icon(Icons.calendar_month_outlined),
                     label: Text(
@@ -1735,8 +1754,7 @@ class _AccountingPageState extends State<AccountingPage> {
                       const Color(0xFFDCEEFF),
                       primary: true,
                       detail:
-                          purchaseSummary.status +
-                          ' · Không phải doanh thu tính thuế',
+                          '${purchaseSummary.status} · Không phải doanh thu tính thuế',
                     ),
                   ),
                   SizedBox(

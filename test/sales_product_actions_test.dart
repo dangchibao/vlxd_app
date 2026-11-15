@@ -1,3 +1,5 @@
+// Match the Material widgets rendered by lib/ui/app.dart.
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
@@ -56,7 +58,7 @@ void main() {
       expect(find.text('Thêm sản phẩm vào giỏ?'), findsNothing);
 
       // Thay đổi giá bán.
-      await tester.enterText(input('Giá bán đ/đơn vị (m² hoặc m³)'), '199000');
+      await tester.enterText(input('Giá bán đ/đơn vị'), '199000');
 
       await tester.tap(find.text('Lưu thay đổi'));
       await tester.pumpAndSettle();

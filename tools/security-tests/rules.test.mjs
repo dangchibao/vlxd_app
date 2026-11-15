@@ -21,16 +21,49 @@ beforeEach(async () => {
   });
 });
 const db = (uid) => uid ? env.authenticatedContext(uid).firestore() : env.unauthenticatedContext().firestore();
-function commit(firestore, uid, mutationId, records, revision = 1) {
+function commit(firestore, uid, mutationId, records, revision = 1, storeId = 'bay-hai') {
+  const storePath = `stores/${storeId}`;
   const batch = writeBatch(firestore);
   const envelope = { revision, mutationId, updatedBy: uid, updatedAt: serverTimestamp() };
   const auditId = `commit-${mutationId}`;
-  batch.set(doc(firestore, `${path}/meta/state`), {...envelope,auditId});
-  batch.set(doc(firestore, `${path}/audit/${auditId}`), {...envelope,value:{id:auditId,actor:uid,action:'test',target:mutationId,detail:'test',at:'2026-11-03'}});
-  for (const [collection, value] of records) batch.set(doc(firestore, `${path}/${collection}/${value.id}`), {...envelope,value});
+  batch.set(doc(firestore, `${storePath}/meta/state`), {...envelope,auditId});
+  batch.set(doc(firestore, `${storePath}/audit/${auditId}`), {...envelope,value:{id:auditId,actor:uid,action:'test',target:mutationId,detail:'test',at:'2026-11-03'}});
+  for (const [collection, value] of records) batch.set(doc(firestore, `${storePath}/${collection}/${value.id}`), {...envelope,value});
   return batch.commit();
 }
 const product = {id:'P1',code:'P1',name:'Prime',size:'60×60',supplier:'Prime',price:240000,ratio:14400,minimum:0,active:true,images:[],lots:[]};
+
+test('store memberships isolate reads, writes and granting roles', async () => {
+  await env.withSecurityRulesDisabled(async c => {
+    await setDoc(doc(c.firestore(),'stores/hai-soc/members/hai-owner'), {role:'owner',active:true,displayName:'Hai Sóc owner',mustChangePassword:false});
+    await setDoc(doc(c.firestore(),'stores/hai-soc/members/hai-sales'), {role:'sales',active:true,displayName:'Hai Sóc sales',mustChangePassword:false});
+  });
+  await assertSucceeds(commit(db('owner'),'owner','bay-create',[['products',product]]));
+  await assertSucceeds(commit(db('hai-owner'),'hai-owner','hai-create',[['products',{...product,name:'Hai Sóc product'}]],1,'hai-soc'));
+  await assertFails(getDoc(doc(db('sales'),'stores/hai-soc/products/P1')));
+  await assertFails(getDoc(doc(db('owner'),'stores/hai-soc/products/P1')));
+  await assertFails(getDoc(doc(db('hai-owner'),'stores/bay-hai/products/P1')));
+  await assertFails(commit(db('sales'),'sales','cross-bay',[['products',product]],2,'hai-soc'));
+  await assertFails(commit(db('hai-owner'),'hai-owner','cross-hai',[['products',product]],2));
+  await assertFails(setDoc(doc(db('hai-sales'),'stores/hai-soc/members/intruder'),{role:'owner',active:true,displayName:'x',mustChangePassword:false}));
+  await assertSucceeds(setDoc(doc(db('hai-owner'),'stores/hai-soc/members/owner'),{role:'owner',active:true,displayName:'Shared owner',mustChangePassword:false}));
+  await assertSucceeds(getDoc(doc(db('owner'),'stores/hai-soc/products/P1')));
+  await assertSucceeds(getDoc(doc(db('owner'),'stores/bay-hai/products/P1')));
+  await assertSucceeds(updateDoc(doc(db('hai-owner'),'stores/hai-soc/members/owner'),{active:false}));
+  await assertFails(getDoc(doc(db('owner'),'stores/hai-soc/products/P1')));
+  await assertSucceeds(getDoc(doc(db('owner'),'stores/bay-hai/products/P1')));
+});
+
+test('reset blocks old writes and accepts the current generation', async () => {
+  await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), `${path}/meta/state`), {revision:10,generation:'reset-20261113'}));
+  await assertFails(commit(db('owner'),'owner','old-app',[],11));
+  const firestore=db('owner'), batch=writeBatch(firestore);
+  const mutationId='new-app', auditId='commit-new-app';
+  const envelope={revision:11,mutationId,updatedBy:'owner',updatedAt:serverTimestamp()};
+  batch.set(doc(firestore,`${path}/meta/state`),{...envelope,auditId,generation:'reset-20261113'});
+  batch.set(doc(firestore,`${path}/audit/${auditId}`),{...envelope,value:{id:auditId,actor:'owner',action:'test',target:mutationId,detail:'test',at:'2026-11-13'}});
+  await assertSucceeds(batch.commit());
+});
 
 test('optional product note and unknown conversion are accepted without widening staff permissions', async () => {
   await assertSucceeds(commit(db('sales'),'sales','note1',[['products',{...product,note:'5 tấm; người bán tự tính m²',ratio:0,size:'',supplier:''}]]));

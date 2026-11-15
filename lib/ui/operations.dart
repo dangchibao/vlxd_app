@@ -1,5 +1,75 @@
 part of 'app.dart';
 
+// Hiển thị lô theo vị trí tạo trong danh sách. Không thay UUID trong Firebase.
+List<Json> _visibleInventoryLots(Product product) => product.lots
+    .where((lot) => lot['hiddenFromInventory'] != true)
+    .toList();
+
+String _inventoryLotLabel(Product product, Json lot) {
+  final index = product.lots.indexWhere((item) => item['id'] == lot['id']);
+  final number = lot['lotNumber'] is int && (lot['lotNumber'] as int) > 0
+      ? lot['lotNumber'] as int
+      : (index + 1);
+  return index < 0 ? 'Lô không xác định' :
+      '${product.code} – Lô ${number.toString().padLeft(3, '0')}';
+}
+
+Future<void> hideEmptyInventoryLot(
+  BuildContext context, Product product, Json lot,
+) async {
+  final quantity = lot['area'] as int? ?? 0;
+  final reserved = lot['reserved'] as int? ?? 0;
+  if (quantity != 0 || reserved != 0) {
+    await safeDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Không thể ẩn lô đang có hàng'),
+        content: const Text('Chỉ ẩn khi tồn và giữ đều bằng 0. '
+            'Nếu cần thay đổi số lượng, hãy dùng Kiểm kê / ảnh kho.'),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx),
+          child: const Text('Đã hiểu'))],
+      ),
+    );
+    return;
+  }
+  final label = _inventoryLotLabel(product, lot);
+  final confirmed = await safeDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text('Ẩn $label khỏi Kho?'),
+      content: const Text('Lô hết hàng sẽ được ẩn khỏi màn hình Kho. '
+          'Mã gốc, lịch sử và chứng từ không bị xóa.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Hủy')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Ẩn lô')),
+      ],
+    ),
+  );
+  if (confirmed != true) return;
+  await attempt(() async {
+    final shop = Get.find<ShopController>();
+    await shop.change((data, actor) {
+      actor.requireAdmin();
+      final currentProduct = data.product(product.id);
+      final matches = currentProduct.lots.where((item) => item['id'] == lot['id']);
+      if (matches.length != 1) {
+        throw StateError('Lô đã thay đổi. Vui lòng tải lại danh sách Kho.');
+      }
+      final current = matches.single;
+      if (current['hiddenFromInventory'] == true ||
+          current['area'] != 0 ||
+          (current['reserved'] as int? ?? 0) != 0) {
+        throw StateError('Lô đã thay đổi hoặc vẫn còn tồn. Vui lòng tải lại.');
+      }
+      current['hiddenFromInventory'] = true;
+      data.log(actor, 'Ẩn lô hết hàng', currentProduct.code,
+          '$label (${current['id']}) được ẩn khỏi Kho; giữ lịch sử.');
+    });
+  });
+}
+
 class InventoryPage extends StatelessWidget {
   const InventoryPage({super.key});
   @override
@@ -13,7 +83,7 @@ class InventoryPage extends StatelessWidget {
         hint('Theo dõi tồn thực tế, lượng đang giữ và giá vốn từng lô.'),
         const SizedBox(height: 12),
         VlxdPagedList<Product>(
-          items: c.data.products,
+          items: c.data.products.where((p) => !p.deleted && !p.archivedFromLists).toList(),
           pageSize: 10,
           itemBuilder: (p) => Padding(
             padding: const EdgeInsets.only(bottom: 9),
@@ -28,7 +98,9 @@ class InventoryPage extends StatelessWidget {
                     children: [
                       titleText('${p.name} ${p.size}', size: 18),
                       if (!p.active) badge('Ngừng kinh doanh'),
-                      if (p.available <= p.minimum)
+                      if (p.available <= 0)
+                        badge('Hết hàng', warning: true)
+                      else if (p.minimum > 0 && p.available <= p.minimum)
                         badge('Sắp hết hàng', warning: true),
                       if (p.isOld(DateTime.now()))
                         badge('Có lô tồn trên 60 ngày', warning: true),
@@ -38,9 +110,9 @@ class InventoryPage extends StatelessWidget {
                   Text(
                     'Tồn ${area(p.stock)} ${p.unit} • Giữ ${area(p.reserved)} ${p.unit} • Khả dụng ${area(p.available)} ${p.unit}',
                   ),
-                  hint('Ngưỡng sắp hết: ${area(p.minimum)} ${p.unit}'),
+                  hint(p.minimum > 0 ? 'Cảnh báo khi tồn kho còn: ${area(p.minimum)} ${p.unit}' : 'Chưa đặt ngưỡng cảnh báo'),
                   const SizedBox(height: 4),
-                  if (p.lots.isNotEmpty)
+                  if (_visibleInventoryLots(p).isNotEmpty)
                     ExpansionTile(
                       key: PageStorageKey('lots-${p.id}'),
                       tilePadding: EdgeInsets.zero,
@@ -53,17 +125,28 @@ class InventoryPage extends StatelessWidget {
                         color: blue,
                       ),
                       title: Text(
-                        'Xem ${p.lots.length} lô hàng',
+                        'Xem ${_visibleInventoryLots(p).length} lô hàng',
                         style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       children: [
-                        for (final l in p.lots)
+                        for (final l in _visibleInventoryLots(p))
                           ListTile(
                             dense: true,
                             contentPadding: EdgeInsets.zero,
-                            title: Text('${l['id']} • ${day(l['date'])}'),
+                            title: Text('${_inventoryLotLabel(p, l)} • ${day(l['date'])}'),
                             subtitle: Text(
                               '${area(l['area'])} ${p.unit} • Vốn ${money(l['cost'])}/${p.unit}',
+                            ),
+                            trailing: Tooltip(
+                              message: (l['area'] == 0 &&
+                                      (l['reserved'] as int? ?? 0) == 0)
+                                  ? 'Ẩn lô hết hàng (giữ lịch sử)'
+                                  : 'Lô đang có tồn hoặc giữ: không thể ẩn',
+                              child: IconButton(
+                                icon: const Icon(Icons.close, color: Colors.red),
+                                onPressed: c.busy ? null :
+                                    () => hideEmptyInventoryLot(context, p, l),
+                              ),
                             ),
                           ),
                       ],
@@ -83,6 +166,16 @@ class InventoryPage extends StatelessWidget {
                         icon: const Icon(Icons.fact_check_outlined),
                         label: const Text('Kiểm kê / ảnh kho'),
                       ),
+                      if (c.actor?.canAdmin == true &&
+                          p.lots.any((l) => l['lotNumber'] is! int))
+                        TextButton.icon(
+                          icon: const Icon(Icons.push_pin_outlined),
+                          label: const Text('Cố định mã lô'),
+                          onPressed: () => attempt(() async {
+                            await c.change((d, a) =>
+                                d.assignMissingLotNumbers(p.id, a));
+                          }),
+                        ),
                     ],
                   ),
                 ],
@@ -239,7 +332,7 @@ Future<void> inspectStock(BuildContext context, Product p) async {
                       .map(
                         (l) => DropdownMenuItem<String>(
                           value: l['id'],
-                          child: Text(l['id']),
+                          child: Text(_inventoryLotLabel(p, l)),
                         ),
                       )
                       .toList(),
@@ -1106,7 +1199,9 @@ class SettingsPage extends StatelessWidget {
             children: [
               titleText('Thông báo nội bộ', size: 18),
               const SizedBox(height: 12),
-              const Text('Fanpage VLXD Bảy Hải\nNhóm Đơn mới — Ai cũng đọc'),
+              Text(
+                'Fanpage VLXD ${StoreProfile.current.name}\nNhóm Đơn mới — Ai cũng đọc',
+              ),
               const SizedBox(height: 12),
               badge('Chưa kết nối • chưa xác minh API nhóm', warning: true),
               const SwitchListTile(
@@ -1370,7 +1465,7 @@ Future<void> exportData(BuildContext context) async {
         ? const JsonEncoder.withIndent('  ').convert(exported)
         : '\uFEFF${rows.map((r) => r.map(csvValue).join(',')).join('\r\n')}';
     final filename =
-        'bay-hai-${DateTime.now().millisecondsSinceEpoch}.${json ? 'json' : 'csv'}';
+        '${StoreProfile.current.id}-${DateTime.now().millisecondsSinceEpoch}.${json ? 'json' : 'csv'}';
     final target = await getSaveLocation(suggestedName: filename);
     if (target == null) return;
     await XFile.fromData(

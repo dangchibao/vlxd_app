@@ -1,3 +1,4 @@
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 
 /// VLXD Bay Hai - visual style only. No changes to business logic or data.

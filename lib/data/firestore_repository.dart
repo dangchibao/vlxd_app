@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../domain/shop.dart';
 import 'demo_repository.dart';
+import 'data_generation.dart';
 
 /// Rows live in separate collections. A single revision serializes transactions
 /// affecting inventory, reservations and money. No last-writer-wins snapshots.
@@ -37,19 +38,28 @@ class FirestoreRepository implements TransactionalShopRepository {
     return result;
   }
 
-  Future<({ShopData data, int revision})> _read() async {
+  Future<({ShopData data, int revision, String? generation})> _read() async {
     // Queries are outside the transaction; the double-read detects intervening
     // commits. The transaction below compares the same revision before writes.
     for (var retry = 0; retry < 5; retry++) {
       final before = await meta.get(const GetOptions(source: Source.server));
       final revision = (before.data()?['revision'] as int?) ?? 0;
+      final generation = before.data()?['generation'] as String?;
+      if (generation != null && generation != storeDataGeneration) {
+        throw StateError(
+          'Dữ liệu cửa hàng đã được làm mới. Hãy cập nhật ứng dụng.',
+        );
+      }
       final snapshots = await Future.wait(
         collections.map(
           (name) => rows(name).get(const GetOptions(source: Source.server)),
         ),
       );
       final after = await meta.get(const GetOptions(source: Source.server));
-      if (revision != ((after.data()?['revision'] as int?) ?? 0)) continue;
+      if (revision != ((after.data()?['revision'] as int?) ?? 0) ||
+          generation != after.data()?['generation']) {
+        continue;
+      }
       final json = <String, dynamic>{'schema': 1};
       for (var i = 0; i < collections.length; i++) {
         json[collections[i]] = snapshots[i].docs.map((doc) {
@@ -69,7 +79,7 @@ class FirestoreRepository implements TransactionalShopRepository {
       ]) {
         list.sort((a, b) => '${b['at'] ?? ''}'.compareTo('${a['at'] ?? ''}'));
       }
-      return (data: data, revision: revision);
+      return (data: data, revision: revision, generation: generation);
     }
     throw StateError('Dữ liệu đang thay đổi liên tục. Vui lòng tải lại.');
   }
@@ -133,7 +143,8 @@ class FirestoreRepository implements TransactionalShopRepository {
         await firestore.runTransaction((tx) async {
           final current = await tx.get(meta);
           if (((current.data()?['revision'] as int?) ?? 0) !=
-              snapshot.revision) {
+                  snapshot.revision ||
+              current.data()?['generation'] != snapshot.generation) {
             throw const RevisionConflict();
           }
           final envelope = <String, dynamic>{
@@ -142,7 +153,11 @@ class FirestoreRepository implements TransactionalShopRepository {
             'updatedBy': actor.id,
             'updatedAt': FieldValue.serverTimestamp(),
           };
-          tx.set(meta, {...envelope, 'auditId': auditId});
+          tx.set(meta, {
+            ...envelope,
+            'auditId': auditId,
+            if (snapshot.generation != null) 'generation': storeDataGeneration,
+          });
           tx.set(rows('audit').doc(auditId), {
             ...envelope,
             'value': {

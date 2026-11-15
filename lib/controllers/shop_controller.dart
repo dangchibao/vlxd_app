@@ -364,6 +364,7 @@ class ShopController extends GetxController {
       .where(
         (p) =>
             p.active &&
+            !p.deleted &&
             (group == 'Tất cả' || p.size == group) &&
             '${p.code} ${p.name} ${p.supplier}'.toLowerCase().contains(
               query.toLowerCase(),

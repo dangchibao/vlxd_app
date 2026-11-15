@@ -15,7 +15,7 @@ if ($Emulator -and ($Output -eq 'build/web')) {
   throw 'Emulator builds must use a separate output directory.'
 }
 if ((-not $Emulator) -and ($Output -ne 'build/web')) {
-  Write-Warning 'Production build uses live Firebase config with auto-sync disabled.'
+  Write-Warning 'Production build uses live Firebase config with auto-sync enabled.'
 }
 
 $argsList = @(
@@ -32,9 +32,9 @@ if ($Emulator) {
   $argsList += '--dart-define=AUTO_SYNC_OUTBOX=true'
   $argsList += '--dart-define=ALLOW_PRODUCTION_AUTO_SYNC=true'
 } else {
-  # Fail-safe: production binaries must never auto-dispatch without separate approval.
-  $argsList += '--dart-define=AUTO_SYNC_OUTBOX=false'
-  $argsList += '--dart-define=ALLOW_PRODUCTION_AUTO_SYNC=false'
+  # Approved release uses a fresh generation-specific database after store reset.
+  $argsList += '--dart-define=AUTO_SYNC_OUTBOX=true'
+  $argsList += '--dart-define=ALLOW_PRODUCTION_AUTO_SYNC=true'
 }
 
 & flutter @argsList

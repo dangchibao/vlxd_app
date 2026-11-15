@@ -111,7 +111,7 @@ class ShopShell extends StatelessWidget {
                     ],
                   )
                 : Text(
-                    'Bảy Hải • ${destinations[c.page]}',
+                    '${StoreProfile.current.name} • ${destinations[c.page]}',
                     style: const TextStyle(fontSize: 17),
                   ),
             actions: [
@@ -247,7 +247,7 @@ class _ShopBrand extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            'VLXD Bảy Hải',
+            'VLXD ${StoreProfile.current.name}',
             style: TextStyle(
               fontSize: 19,
               fontWeight: FontWeight.w800,
@@ -255,7 +255,7 @@ class _ShopBrand extends StatelessWidget {
             ),
           ),
           Text(
-            'Gò Dầu • Tây Ninh',
+            StoreProfile.current.location,
             style: TextStyle(
               fontSize: 12,
               color: light ? Colors.white : const Color(0xFF657993),

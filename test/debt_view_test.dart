@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
+// Match the Material widgets rendered by lib/ui/app.dart.
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';

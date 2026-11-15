@@ -43,7 +43,7 @@ class VlxdPager extends StatelessWidget {
             icon: const Icon(Icons.chevron_right, size: 18),
             label: const Text('Sau'),
           ),
-          Text('${total} mục', style: const TextStyle(fontSize: 12)),
+          Text('$total mục', style: const TextStyle(fontSize: 12)),
         ],
       ),
     );

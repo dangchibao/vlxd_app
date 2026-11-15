@@ -96,8 +96,15 @@ class _FirebaseLoginPageState extends State<FirebaseLoginPage> {
                     children: [
                       const Icon(Icons.roofing_rounded, color: blue, size: 56),
                       const SizedBox(height: 16),
-                      titleText('VLXD Bảy Hải', size: 30),
-                      hint('Gò Dầu • Tây Ninh'),
+                      titleText('VLXD ${StoreProfile.current.name}', size: 30),
+                      if (StoreProfile.chooseAnother != null)
+                        TextButton.icon(
+                          onPressed: () => attempt(StoreProfile.chooseAnother!),
+                          icon: const Icon(Icons.swap_horiz),
+                          label: const Text('Chọn cửa hàng khác'),
+                        ),
+                      if (StoreProfile.current.location.isNotEmpty)
+                        hint(StoreProfile.current.location),
                       const SizedBox(height: 28),
                       titleText('Đăng nhập', size: 24),
                       const SizedBox(height: 16),

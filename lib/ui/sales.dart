@@ -1206,7 +1206,7 @@ Widget checkoutResultContent(
   final lines = (order['lines'] as List).cast<Map>();
   final totalCount = lines.fold<double>(
     0,
-    (sum, line) => sum + (line['area'] as num) / 10000,
+    (accumulated, line) => accumulated + (line['area'] as num) / 10000,
   );
   final width = MediaQuery.sizeOf(dialogContext).width;
   final compact = width < 680;
@@ -1532,9 +1532,9 @@ Future<void> showOrder(
                 Text('Tổng: ${money(o['total'])}'),
                 Text('Đã thu: ${money(ShopData.collected(o))}'),
                 Text(
-                  'Còn nợ: ${money(o['status'] == 'Đã hủy' ? 0 : (o['total'] as int) - ShopData.collected(o))}',
+                  'Còn nợ: ${money(['Đã hủy', 'Đã trả hàng'].contains(o['status']) ? 0 : (o['total'] as int) - ShopData.collected(o))}',
                 ),
-                if (o['status'] == 'Đã hủy')
+                if (['Đã hủy', 'Đã trả hàng'].contains(o['status']))
                   Text('Đã hoàn: ${money(o['refund'] ?? 0)}'),
                 const SizedBox(height: 16),
                 titleText('Lịch sử thu tiền', size: 16),
@@ -1581,6 +1581,18 @@ Future<void> showOrder(
           ],
           if (o['status'] == 'Đã bán' && !offerPrint)
             OutlinedButton.icon(
+              onPressed: () => printReceipt80(ctx, o),
+              icon: const Icon(Icons.receipt_long_outlined),
+              label: const Text('In 80 mm (KV804)'),
+            ),
+          if (o['status'] == 'Đã bán' && c.actor?.canAdmin == true)
+            OutlinedButton.icon(
+              onPressed: () => returnSoldOrderDialog(ctx, o),
+              icon: const Icon(Icons.assignment_return_outlined),
+              label: const Text('Trả toàn bộ / Hoàn tiền'),
+            ),
+          if (o['status'] == 'Đã bán' && !offerPrint)
+            OutlinedButton.icon(
               onPressed: () => Navigator.of(ctx).push(
                 MaterialPageRoute<void>(
                   builder: (_) => InvoicePdfPage(orderId: o['id']),
@@ -1618,6 +1630,83 @@ Future<void> showOrder(
     },
   ),
 );
+
+/// Owner-only full return with manual refund confirmation.
+/// Does not send money through a payment gateway.
+Future<void> returnSoldOrderDialog(BuildContext context, Json order) async {
+  final controller = Get.find<ShopController>();
+  if (controller.actor?.canAdmin != true) {
+    throw StateError('Chỉ chủ cửa hàng có thể trả hàng và hoàn tiền.');
+  }
+  final reason = TextEditingController();
+  var confirmedRefund = ShopData.collected(order) == 0;
+  try {
+    await safeDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, set) => AlertDialog(
+          title: Text('Trả TOÀN BỘ đơn ${order['id']}?'),
+          content: SizedBox(
+            width: 450,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('Hàng sẽ nhập lại ĐÚNG lô đã xuất. '
+                  'Không xóa chứng từ bán; lưu lịch sử trả hàng.'),
+              const SizedBox(height: 12),
+              Text('Số tiền đã thu: ${money(ShopData.collected(order))}'),
+              const SizedBox(height: 12),
+              field(reason, 'Lý do trả hàng (bắt buộc)'),
+              CheckboxListTile(
+                value: confirmedRefund,
+                onChanged: (v) => set(() => confirmedRefund = v ?? false),
+                title: const Text('Tôi đã hoàn tiền ngoài phần mềm'),
+                subtitle: const Text('Chỉ đánh dấu khi thật sự đã chi tiền.'),
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+              ),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx),
+                child: const Text('Hủy')),
+            FilledButton(
+              onPressed: () => attempt(() async {
+                await controller.change((d, a) => d.returnSoldOrder(
+                    order['id'] as String, reason.text, a,
+                    cashWasReturned: confirmedRefund));
+                if (ctx.mounted) Navigator.pop(ctx);
+              }),
+              child: const Text('Xác nhận trả hàng'),
+            ),
+          ],
+        ),
+      ),
+    );
+  } finally {
+    reason.dispose();
+  }
+}
+
+Future<void> printReceipt80(BuildContext context, Json order) async {
+  try {
+    final controller = Get.find<ShopController>();
+    final name = invoiceCustomer(controller.data, order);
+    await Printing.layoutPdf(
+      name: 'phieu-80mm-${order['id']}.pdf',
+      onLayout: (_) => PrintService.receipt80Pdf(order, name),
+    );
+  } catch (e) {
+    if (!context.mounted) return;
+    await safeDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Không in được phiếu 80 mm'),
+        content: Text('$e\nĐơn đã lưu không thay đổi.'),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx),
+            child: const Text('Đóng'))],
+      ),
+    );
+  }
+}
 
 /// Print the already-saved invoice. Never creates a new checkout or mutates data.
 Future<void> printSavedCheckoutInvoice(BuildContext context, Json order) async {

@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 
+import '../data_generation.dart';
+
 part 'app_database.g.dart';
 
 class PendingOperations extends Table {
@@ -24,10 +26,12 @@ class PendingOperations extends Table {
 
 @DriftDatabase(tables: [PendingOperations])
 class AppDatabase extends _$AppDatabase {
-  AppDatabase() : super(_open('vlxd_bayhai_local'));
+  AppDatabase({String storeId = 'bay-hai'})
+    : super(_open('$localDatabaseName-$storeId'));
 
   // Tách tuyệt đối Outbox thử nghiệm khỏi Outbox cửa hàng thật.
-  AppDatabase.forEmulator() : super(_open('vlxd_bayhai_emulator_test'));
+  AppDatabase.forEmulator({String storeId = 'bay-hai'})
+    : super(_open('vlxd_emulator_test-$storeId'));
 
   static QueryExecutor _open(String name) => driftDatabase(
     name: name,

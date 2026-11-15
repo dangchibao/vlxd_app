@@ -6,6 +6,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../domain/shop.dart';
+import '../data/store_profile.dart';
 
 class PrintService {
   // Order lines retain the price/name/amount at sale time. Never recalculate
@@ -19,6 +20,7 @@ class PrintService {
     bool provisional = false,
     pw.ThemeData? fontTheme,
   }) async {
+    final store = StoreProfile.current;
     // Chỉ đọc dữ liệu trên chứng từ đã lưu, KHÔNG tạo lại giao dịch.
     if (!provisional && order['status'] != 'Đã bán') {
       throw StateError('Chỉ in hóa đơn từ đơn đã bán.');
@@ -61,7 +63,7 @@ class PrintService {
             child: pw.Column(
               children: [
                 pw.Text(
-                  'VLXD Bảy Hải',
+                  'VLXD ${store.name}',
                   style: pw.TextStyle(
                     fontSize: 25,
                     fontWeight: pw.FontWeight.bold,
@@ -73,13 +75,15 @@ class PrintService {
                   style: pw.TextStyle(fontSize: 11),
                 ),
                 pw.SizedBox(height: 4),
-                pw.Text(
-                  'Ấp Bàu Vừng, Xã Phước Trạch, Huyện Gò Dầu, Tỉnh Tây Ninh',
-                  style: pw.TextStyle(fontSize: 10),
-                  textAlign: pw.TextAlign.center,
-                ),
+                if (store.address.isNotEmpty)
+                  pw.Text(
+                    store.address,
+                    style: pw.TextStyle(fontSize: 10),
+                    textAlign: pw.TextAlign.center,
+                  ),
                 pw.SizedBox(height: 4),
-                pw.Text('0343 744 091', style: pw.TextStyle(fontSize: 11)),
+                if (store.phone.isNotEmpty)
+                  pw.Text(store.phone, style: pw.TextStyle(fontSize: 11)),
               ],
             ),
           ),
@@ -135,7 +139,14 @@ class PrintService {
           ),
           pw.SizedBox(height: 18),
           pw.TableHelper.fromTextArray(
-            headers: ['STT', 'Tên hàng hóa', 'SL', 'Đơn giá', 'Thành tiền'],
+            headers: [
+              'STT',
+              'Tên hàng hóa',
+              'SL',
+              'ĐVT',
+              'Đơn giá',
+              'Thành tiền',
+            ],
             data: [
               for (var i = 0; i < lines.length; i++)
                 [
@@ -145,6 +156,7 @@ class PrintService {
                     '0.####',
                     'vi',
                   ).format((lines[i]['area'] as num) / 10000),
+                  (lines[i]['unit'] as String?) ?? 'm²',
                   NumberFormat.decimalPattern('vi').format(lines[i]['price']),
                   NumberFormat.decimalPattern('vi').format(lines[i]['amount']),
                 ],
@@ -163,15 +175,17 @@ class PrintService {
             columnWidths: {
               0: const pw.FlexColumnWidth(0.6),
               1: const pw.FlexColumnWidth(3.2),
-              2: const pw.FlexColumnWidth(1.35),
-              3: const pw.FlexColumnWidth(1.45),
-              4: const pw.FlexColumnWidth(1.6),
+              2: const pw.FlexColumnWidth(0.9),
+              3: const pw.FlexColumnWidth(0.8),
+              4: const pw.FlexColumnWidth(1.45),
+              5: const pw.FlexColumnWidth(1.6),
             },
             cellAlignments: {
               0: pw.Alignment.center,
-              2: pw.Alignment.centerLeft, // Chừa phần bên phải để viết ĐVT.
-              3: pw.Alignment.centerRight,
+              2: pw.Alignment.centerRight,
+              3: pw.Alignment.center,
               4: pw.Alignment.centerRight,
+              5: pw.Alignment.centerRight,
             },
           ),
           // Khoảng trống cố ý để viết tay, không thêm ô hoặc đường kẻ.
@@ -225,6 +239,97 @@ class PrintService {
     return doc.save();
   }
 
+  /// KV804 paper roll: 80 mm thermal receipt, NO image/barcode/font icon.
+  /// Windows shows the system printer selector; this does not send raw USB.
+  static Future<Uint8List> receipt80Pdf(
+    Json order,
+    String customerName, {
+    bool provisional = false,
+    pw.ThemeData? fontTheme,
+  }) async {
+    if ((!provisional && order['status'] != 'Đã bán') ||
+        (provisional && order['status'] != 'Chờ đồng bộ')) {
+      throw StateError('Chỉ in đơn đã bán hoặc phiếu tạm chờ đồng bộ.');
+    }
+    final store = StoreProfile.current;
+    final lines = (order['lines'] as List).cast<Map>();
+    final at = (order['soldAt'] ?? order['at']) as String;
+    final when = DateFormat('dd/MM/yyyy HH:mm')
+        .format(DateTime.parse(at).toLocal());
+    final subtotal = (order['subtotal'] as num).toInt();
+    final discount = (order['discount'] as num? ?? 0).toInt();
+    final ship = (order['ship'] as num? ?? 0).toInt();
+    final total = (order['total'] as num).toInt();
+    // Enough room for longer product descriptions, with a practical upper bound.
+    final heightMm = (125 + lines.length * 29).clamp(160, 1800).toDouble();
+    final doc = pw.Document(theme: fontTheme ?? await theme());
+    final body = pw.TextStyle(fontSize: 9);
+    final strong = pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold);
+    pw.Widget line(String title, String value, {bool isBold = false}) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(title, style: isBold ? strong : body),
+        pw.Text(value, style: isBold ? strong : body),
+      ],
+    );
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat(
+        80 * PdfPageFormat.mm, heightMm * PdfPageFormat.mm,
+        marginAll: 4 * PdfPageFormat.mm,
+      ),
+      build: (_) => [
+        pw.Center(child: pw.Text('VLXD ${store.name}',
+            style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold))),
+        if (store.address.isNotEmpty)
+          pw.Center(child: pw.Text(store.address,
+            style: const pw.TextStyle(fontSize: 8),
+            textAlign: pw.TextAlign.center)),
+        if (store.phone.isNotEmpty)
+          pw.Center(child: pw.Text(store.phone, style: body)),
+        pw.SizedBox(height: 5),
+        pw.Divider(thickness: 1),
+        pw.Center(child: pw.Text(
+          provisional ? 'PHIẾU TẠM - CHỜ ĐỒNG BỘ' : 'PHIẾU BÁN HÀNG',
+          style: strong,
+        )),
+        pw.SizedBox(height: 6),
+        pw.Text('Mã đơn: ${order['id']}', style: body),
+        pw.Text('Ngày: $when', style: body),
+        pw.Text('Khách hàng: $customerName', style: body),
+        if ((order['customerPhone'] as String? ?? '').isNotEmpty)
+          pw.Text('ĐT: ${order['customerPhone']}', style: body),
+        pw.Divider(thickness: 0.6),
+        for (final item in lines) ...[
+          pw.Text('${item['name']}', style: strong),
+          if ((item['note'] as String? ?? '').trim().isNotEmpty)
+            pw.Text('Ghi chú: ${item['note']}', style: body),
+          pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+            pw.Expanded(child: pw.Text(
+              '${NumberFormat('0.####','vi').format((item['area'] as num)/10000)} '
+              '${item['unit'] ?? ''} × '
+              '${NumberFormat.decimalPattern('vi').format(item['price'])}',
+              style: body,
+            )),
+            pw.Text(money((item['amount'] as num).toInt()), style: body),
+          ]),
+          pw.SizedBox(height: 4),
+        ],
+        pw.Divider(thickness: 0.6),
+        line('Tổng tiền hàng', money(subtotal + discount)),
+        line('Giảm giá', discount == 0 ? money(0) : '-${money(discount)}'),
+        line('Phí vận chuyển', money(ship)),
+        pw.Divider(thickness: 0.6),
+        line('TỔNG THANH TOÁN', money(total), isBold: true),
+        if (provisional) ...[
+          pw.SizedBox(height: 6),
+          pw.Text('Lưu trên thiết bị - chưa xác nhận máy chủ.',
+              style: const pw.TextStyle(fontSize: 8)),
+        ],
+      ],
+    ));
+    return doc.save();
+  }
+
   static String money(int n) =>
       '${NumberFormat.decimalPattern('vi').format(n)} đ';
   static Future<pw.ThemeData> theme() async => pw.ThemeData.withFont(
@@ -232,6 +337,7 @@ class PrintService {
     bold: await PdfGoogleFonts.notoSansBold(),
   );
   static Future<void> barcode(Product p) async {
+    final store = StoreProfile.current;
     final doc = pw.Document(theme: await theme());
     doc.addPage(
       pw.Page(
@@ -243,10 +349,10 @@ class PrintService {
         build: (_) => pw.Column(
           children: [
             pw.Text(
-              'VLXD Bảy Hải',
+              'VLXD ${store.name}',
               style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
             ),
-            pw.Text('Gò Dầu • Tây Ninh'),
+            if (store.location.isNotEmpty) pw.Text(store.location),
             pw.SizedBox(height: 12),
             pw.Text('${p.name} ${p.size}', textAlign: pw.TextAlign.center),
             pw.SizedBox(height: 16),

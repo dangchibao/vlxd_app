@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+// Match the Material widgets rendered by lib/ui/app.dart.
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';

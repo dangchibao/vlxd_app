@@ -1,0 +1,10 @@
+{
+  "name": "vlxd-safe-backup-tool",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Read-only production Firestore backup and guarded empty-staging restore",
+  "main": "vlxd-backup.cjs",
+  "dependencies": {
+    "firebase-admin": "^13.6.0"
+  }
+}

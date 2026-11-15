@@ -39,6 +39,8 @@ class AutoSyncCoordinator {
   Timer? _timer;
   StreamSubscription<User?>? _authSubscription;
   bool _running = false;
+  bool _stopped = false;
+  Completer<void>? _idle;
   bool _initialized = false;
   late final AutoRecoveryService _recovery = AutoRecoveryService(
     outbox: outbox,
@@ -94,6 +96,7 @@ class AutoSyncCoordinator {
   }
 
   void start() {
+    _stopped = false;
     if (_timer != null) return;
     _authSubscription = auth.authStateChanges().listen((_) {
       unawaited(checkNow());
@@ -161,11 +164,12 @@ class AutoSyncCoordinator {
   }
 
   Future<void> checkNow() async {
-    if (_running) return;
+    if (_running || _stopped) return;
     final user = auth.currentUser;
     if (user == null || !shop.isLive || shop.actor?.id != user.uid) return;
 
     _running = true;
+    _idle = Completer<void>();
     try {
       // Initialize once per app process. Interrupted 'syncing' becomes
       // quarantined 'failed', never pending.
@@ -188,7 +192,8 @@ class AutoSyncCoordinator {
       // Bound a single sweep to avoid monopolizing the app.
       for (var count = 0; count < 20; count++) {
         final current = auth.currentUser;
-        if (current == null ||
+        if (_stopped ||
+            current == null ||
             current.uid != user.uid ||
             shop.actor?.id != user.uid) {
           return;
@@ -241,6 +246,7 @@ class AutoSyncCoordinator {
       // Pending orders stay pending; next poll must verify on server first.
     } finally {
       _running = false;
+      _idle?.complete();
     }
   }
 
@@ -293,9 +299,11 @@ class AutoSyncCoordinator {
   }
 
   Future<void> stop() async {
+    _stopped = true;
     _timer?.cancel();
     _timer = null;
     await _authSubscription?.cancel();
     _authSubscription = null;
+    await _idle?.future;
   }
 }

@@ -24,7 +24,7 @@ class AccountsPage extends StatelessWidget {
           ),
           Expanded(
             child: StreamBuilder<QuerySnapshot<Json>>(
-              stream: s.firestore.collection('users').snapshots(),
+              stream: s.profiles.snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return const EmptyState(
@@ -50,8 +50,9 @@ class AccountsPage extends StatelessWidget {
                           : IconButton(
                               tooltip: 'Sửa quyền / khóa tài khoản',
                               icon: const Icon(Icons.manage_accounts_outlined),
-                              onPressed: () =>
-                                  editAccount(context, doc.id, user),
+                              onPressed: () => attempt(
+                                () => editAccount(context, doc.id, user),
+                              ),
                             ),
                     );
                   }).toList(),
@@ -102,6 +103,10 @@ Future<void> createAccount(BuildContext context) async {
                   decoration: const InputDecoration(labelText: 'Vai trò'),
                   items: const [
                     DropdownMenuItem(
+                      value: 'owner',
+                      child: Text('Chủ cửa hàng'),
+                    ),
+                    DropdownMenuItem(
                       value: 'sales',
                       child: Text('Nhân viên bán hàng'),
                     ),
@@ -136,7 +141,7 @@ Future<void> createAccount(BuildContext context) async {
                         'Nhập họ tên và mật khẩu tạm ít nhất 10 ký tự.',
                       );
                     }
-                    final email = loginEmail(account.text);
+                    final email = loginEmail(account.text, storeId: s.storeId);
                     set(() => saving = true);
                     FirebaseApp? secondary;
                     User? created;
@@ -163,13 +168,13 @@ Future<void> createAccount(BuildContext context) async {
                         password: password.text,
                       )).user;
                       final batch = s.firestore.batch();
-                      batch.set(s.firestore.doc('users/${created!.uid}'), {
+                      batch.set(s.profiles.doc(created!.uid), {
                         'displayName': name.text.trim(),
                         'role': role,
                         'active': true,
                         'mustChangePassword': true,
                       });
-                      batch.set(s.firestore.doc('accountAudit/${newId()}'), {
+                      batch.set(s.accountAudit.doc(newId()), {
                         'actor': s.auth.currentUser!.uid,
                         'target': created.uid,
                         'action': 'Tạo tài khoản',
@@ -202,6 +207,15 @@ Future<void> createAccount(BuildContext context) async {
 }
 
 Future<void> editAccount(BuildContext context, String uid, Json profile) async {
+  final session = Get.find<SessionController>();
+  final fresh =
+      (await session.profiles
+              .doc(uid)
+              .get(const GetOptions(source: Source.server)))
+          .data();
+  if (!context.mounted) return;
+  if (fresh == null) throw StateError('Hồ sơ tài khoản không còn tồn tại.');
+  profile = Map<String, dynamic>.from(fresh);
   var role = profile['role'] as String, active = profile['active'] == true;
   await safeDialog<void>(
     context: context,
@@ -242,15 +256,17 @@ Future<void> editAccount(BuildContext context, String uid, Json profile) async {
               final s = Get.find<SessionController>();
               Get.find<ShopController>().actor!.requireAdmin();
               await s.firestore.runTransaction((tx) async {
-                final ref = s.firestore.doc('users/$uid'),
-                    current = await tx.get(s.firestore.doc('users/$uid'));
-                if (jsonEncode(current.data()) != jsonEncode(profile)) {
+                final ref = s.profiles.doc(uid),
+                    current = await tx.get(s.profiles.doc(uid));
+                if (current.data() == null ||
+                    current.data()?['role'] != profile['role'] ||
+                    current.data()?['active'] != profile['active']) {
                   throw StateError(
                     'Quyền đã thay đổi, mở lại thông tin tài khoản.',
                   );
                 }
                 tx.update(ref, {'role': role, 'active': active});
-                tx.set(s.firestore.doc('accountAudit/${newId()}'), {
+                tx.set(s.accountAudit.doc(newId()), {
                   'actor': s.auth.currentUser!.uid,
                   'target': uid,
                   'action': 'Đổi quyền / khóa',
