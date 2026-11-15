@@ -360,6 +360,22 @@ class ShopController extends GetxController {
   // PRODUCT / SHOP DATA
   // ============================================================
 
+  String catalogStatus = 'Đang bán';
+
+  List<Product> get catalogProducts => data.products.where((p) {
+    final statusMatches = switch (catalogStatus) {
+      'Ngừng bán' => !p.active && !p.deleted && !p.archivedFromLists,
+      'Đã ẩn' => p.archivedFromLists && !p.deleted,
+      'Xóa nhầm' => p.deleted,
+      'Tất cả' => true,
+      _ => p.active && !p.deleted && !p.archivedFromLists,
+    };
+    return statusMatches &&
+        (group == 'Tất cả' || p.size == group) &&
+        '${p.code} ${p.name} ${p.supplier}'.trim().toLowerCase()
+            .contains(query.trim().toLowerCase());
+  }).toList();
+
   List<Product> get visibleProducts => data.products
       .where(
         (p) =>
@@ -570,6 +586,24 @@ class ShopController extends GetxController {
     }
     if (customerId.isEmpty && (hold || paid < subtotal - discount + ship)) {
       throw ArgumentError('Chọn khách hàng khi giữ đơn hoặc còn phải thu.');
+    }
+
+    final quantities = <String, int>{};
+    for (final line in cart) {
+      quantities.update(line.productId, (v) => v + line.area,
+          ifAbsent: () => line.area);
+    }
+    for (final entry in quantities.entries) {
+      final product = data.product(entry.key);
+      if (entry.value > product.available) {
+        if (hold) {
+          throw StateError('Không thể giữ hàng vượt tồn khả dụng.');
+        }
+        current.requireAdmin();
+        if (negativeReason.trim().length < 5) {
+          throw StateError('Bán âm cần chủ xác nhận và ghi lý do ít nhất 5 ký tự.');
+        }
+      }
     }
 
     final lines = <OfflineCheckoutLine>[];

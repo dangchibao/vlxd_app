@@ -40,7 +40,9 @@ void main() {
       hold: true,
       actor: owner,
     );
-    d.cancelHeld(o['id'], 'Khách đổi kế hoạch, đã hoàn cọc', sales);
+    expect(() => d.cancelHeld(o['id'], 'Khách đổi kế hoạch, đã hoàn cọc', sales), throwsStateError);
+    d.cancelHeld(o['id'], 'Khách đổi kế hoạch, đã hoàn cọc', owner,
+        depositRefunded: true, refundMethod: 'Tiền mặt');
     d.cancelHeld(o['id'], 'Retry', sales);
     expect(d.product('PR6060VD').available, initial);
     expect(d.debt('KH001'), 0);
@@ -174,7 +176,10 @@ void main() {
       () => checkout(area: 2000000, reason: 'Chủ đã xác nhận', hold: true),
       throwsStateError,
     );
-    checkout(area: 2000000, reason: 'Đã kiểm tra hàng về');
+    expect(() => checkout(area: 2000000, reason: 'Đã kiểm tra hàng về'), throwsStateError);
+    d.checkout(requestId: 'owner-negative', lines: [const CartLine('PR6060VD', 2000000)],
+        customerId: 'KH001', paid: 0, ship: 150000, hold: false,
+        negativeReason: 'Chủ duyệt bán âm', actor: owner);
     expect(d.product('PR6060VD').stock, -560000);
     expect(d.orders.first['negativeReason'], isNotEmpty);
   });
@@ -210,13 +215,12 @@ void main() {
       throwsArgumentError,
     );
   });
-  test('sales can finish trips and edit payroll; drivers cannot access', () {
+  test('sales can finish trips but payroll is owner-only; drivers cannot access', () {
     d.deliveries.add({'id': 'GH001', 'status': 'Đang giao'});
     d.finishDelivery('GH001', sales);
     d.finishDelivery('GH001', sales);
     expect(d.notifications, hasLength(1));
-    d.setSalary('NV001', 9000000, 0, sales);
-    expect(d.payroll.first['salary'], 9000000);
+    expect(() => d.setSalary('NV001', 9000000, 0, sales), throwsStateError);
     expect(
       () => const Actor('tx', Role.driver).requireAccess(),
       throwsStateError,

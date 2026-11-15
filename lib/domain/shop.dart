@@ -292,6 +292,38 @@ class ShopData {
         'Hiển thị lại trong danh sách ngừng kinh doanh và Kho.');
   }
 
+  // A mistaken unused-product deletion must not permanently reserve a new
+  // identity. Restore the original record so SKU and references stay stable.
+  void restoreDeletedProduct(String id, Actor actor) {
+    actor.requireAdmin();
+    final p = product(id);
+    if (!p.deleted) throw StateError('Sản phẩm không ở trạng thái đã xóa.');
+    if (p.stock != 0 || p.reserved != 0) {
+      throw StateError('Sản phẩm xóa nhầm có tồn: cần đối chiếu trước khi khôi phục.');
+    }
+    p.deleted = false;
+    p.archivedFromLists = false;
+    p.active = true;
+    log(actor, 'Khôi phục sản phẩm xóa nhầm', p.code,
+        'Giữ nguyên mã SKU và định danh sản phẩm.');
+  }
+
+  bool hasProductHistory(Product p) {
+    if (p.lots.isNotEmpty) return true;
+    if (orders.any(
+      (o) => (o['lines'] as List).any((l) => l['productId'] == p.id),
+    )) {
+      return true;
+    }
+    // Older stock movements store only the SKU, not the stable product ID.
+    if (stockMoves.any(
+      (m) => m['product'] == p.code || m['productId'] == p.id,
+    )) {
+      return true;
+    }
+    return false;
+  }
+
   void restoreProduct(String id, Actor actor) {
     actor.requireAccess();
     final p = product(id);
@@ -307,6 +339,13 @@ class ShopData {
 
   void saveProduct(Product p, Actor actor, {Product? expected}) {
     actor.requireAccess();
+    // Lock the visible SKU once it has been written to any stock/order ledger.
+    // Existing movements reference the SKU string, not just the product ID.
+    if (expected != null && p.code != expected.code &&
+        hasProductHistory(expected)) {
+      throw StateError('Mã SKU đã có chứng từ nhập/xuất/bán nên không thể đổi. '
+          'Hãy giữ mã cũ để bảo toàn lịch sử kho và hóa đơn.');
+    }
     // Never reinterpret historical stock quantities in a new unit.
     // The old check only ran when p.unitLabel was empty and missed BAO -> CÂY.
     if (expected != null && expected.unit.toLowerCase().trim() != p.unit.toLowerCase().trim() &&
@@ -345,7 +384,7 @@ class ShopData {
     // Prevent two identities for the same name, unit and size, even when one
     // item is archived. Different units/sizes can legitimately be different.
     final sameProduct = products.where((x) =>
-        x.id != p.id && !x.deleted &&
+        x.id != p.id &&
         normalizeProductText(x.name) == normalizeProductText(p.name) &&
         normalizeProductText(x.unit) == normalizeProductText(p.unit) &&
         normalizeProductText(x.size) == normalizeProductText(p.size));
@@ -353,7 +392,7 @@ class ShopData {
       final existing = sameProduct.first;
       throw StateError(
         'Sản phẩm tương tự đã có: ${existing.name} '
-        '(mã ${existing.code}, ${existing.active ? 'đang bán' : 'ngừng kinh doanh'}). '
+        '(mã ${existing.code}, ${existing.deleted ? 'đã xóa mềm' : existing.active ? 'đang bán' : 'ngừng kinh doanh'}). '
         'Hãy tìm và sửa hoặc khôi phục sản phẩm cũ; không tạo mã mới.',
       );
     }
@@ -403,7 +442,7 @@ class ShopData {
       assigned++;
     }
     if (assigned > 0) {
-      log(actor, 'Cố định mã lô', p.code,
+      log(actor, 'Đánh số lô cũ', p.code,
           'Đã cấp số cố định cho $assigned lô, không thay UUID gốc.');
     }
   }
@@ -427,6 +466,10 @@ class ShopData {
       );
     }
     final p = product(id);
+    if (lotId.trim().isEmpty || p.lots.any((l) => l['id'] == lotId)) {
+      throw StateError('Mã định danh lô trống hoặc đã tồn tại. '
+          'Không nhập trùng phiếu; hãy kiểm tra lịch sử nhập.');
+    }
     final assigned = p.lots.map((l) => l['lotNumber']).whereType<int>();
     final nextLotNumber = assigned.isEmpty ? p.lots.length + 1 :
         (assigned.reduce(max) + 1 > p.lots.length + 1
@@ -444,6 +487,7 @@ class ShopData {
     });
     stockMoves.insert(0, {
       'product': p.code,
+      'productId': p.id,
       'area': area,
       'type': 'Nhập kho',
       'lot': lotId,
@@ -512,6 +556,16 @@ class ShopData {
         );
       }
       subtotal += lineMoney(entry.value, p.price);
+    }
+    // Until an independent remote approval workflow exists, only the owner
+    // may perform an exception checkout. A text reason is not authorization.
+    if (quantities.entries.any((entry) =>
+        entry.value > product(entry.key).available)) {
+      actor.requireAdmin();
+      if (negativeReason.trim().length < 5) {
+        throw StateError('Bán vượt tồn cần chủ cửa hàng xác nhận '
+            'và ghi lý do ít nhất 5 ký tự.');
+      }
     }
     if (discount < 0 || discount > subtotal) {
       throw ArgumentError('Giảm giá phải từ 0 đến tổng tiền hàng.');
@@ -585,8 +639,12 @@ class ShopData {
     while (orders.any((o) => o['id'] == 'DH-$sequence')) {
       sequence++;
     }
+    final customer = customers.where((c) => c['id'] == customerId).firstOrNull;
     final order = <String, dynamic>{
       'id': 'DH-$sequence',
+      if (customer != null) 'customerName': customer['name'] ?? '',
+      if (customer != null) 'customerPhone': customer['phone'] ?? '',
+      if (customer != null) 'customerAddress': customer['address'] ?? '', 
       'requestId': requestId,
       'customerId': customerId,
       'lines': snapshots,
@@ -678,6 +736,7 @@ class ShopData {
     final at = DateTime.now().toUtc().toIso8601String();
     for (final record in restocks) {
       record.lot['area'] = (record.lot['area'] as int) + record.quantity;
+      record.lot['hiddenFromInventory'] = false;
       stockMoves.insert(0, {
         'id': const Uuid().v4(), 'product': record.product.code,
         'area': record.quantity, 'type': 'Trả hàng đã bán',
@@ -703,12 +762,23 @@ class ShopData {
       .fold<int>(0, (v, p) => v + (p['amount'] as int));
   static int netCollected(Json order) =>
       collected(order) - ((order['refund'] as int?) ?? 0);
-  void cancelHeld(String id, String reason, Actor actor) {
+  void cancelHeld(String id, String reason, Actor actor, {
+    bool depositRefunded = false,
+    String refundMethod = '',
+  }) {
     actor.requireAccess();
     final o = orders.firstWhere((o) => o['id'] == id);
     if (o['status'] == 'Đã hủy') return;
     if (o['status'] != 'Giữ hàng' || reason.trim().isEmpty) {
       throw StateError('Chỉ hủy đơn giữ và phải ghi lý do.');
+    }
+    final deposit = collected(o);
+    if (deposit > 0) {
+      actor.requireAdmin();
+      if (!depositRefunded || refundMethod.trim().isEmpty) {
+        throw StateError('Chỉ chủ cửa hàng được xác nhận đã hoàn cọc '
+            'ngoài phần mềm và phải chọn phương thức hoàn.');
+      }
     }
     _checkBookChange(o['customerId'], -(o['total'] as int), -collected(o));
     for (final line in o['lines']) {
@@ -737,7 +807,12 @@ class ShopData {
       });
     }
     o['status'] = 'Đã hủy';
-    o['refund'] = collected(o);
+    o['refund'] = deposit;
+    if (deposit > 0) {
+      o['refundMethod'] = refundMethod.trim();
+      o['refundConfirmedBy'] = actor.id;
+      o['refundConfirmedAt'] = DateTime.now().toUtc().toIso8601String();
+    }
     o['cancelReason'] = reason.trim();
     o['cancelledBy'] = actor.id;
     o['cancelledAt'] = DateTime.now().toUtc().toIso8601String();
@@ -1006,6 +1081,9 @@ class ShopData {
     actor.requireAccess(); // Latest requirement grants sales staff this right too.
     final d = deliveries.firstWhere((d) => d['id'] == id);
     if (d['status'] == 'Đã xong') return;
+    if (d['status'] != 'Đang giao') {
+      throw StateError('Chỉ hoàn tất chuyến đang giao, không được mở lại chuyến đã hủy.');
+    }
     d['status'] = 'Đã xong';
     d['finishedBy'] = actor.id;
     d['finishedAt'] = DateTime.now().toUtc().toIso8601String();
@@ -1018,8 +1096,26 @@ class ShopData {
     });
   }
 
-  void setSalary(String id, int salary, int advance, Actor actor) {
+  void cancelDelivery(String id, String reason, Actor actor) {
     actor.requireAccess();
+    if (reason.trim().length < 5) {
+      throw ArgumentError('Cần lý do hủy chuyến ít nhất 5 ký tự.');
+    }
+    final d = deliveries.firstWhere((d) => d['id'] == id);
+    if (d['status'] == 'Đã hủy') return;
+    if (d['status'] != 'Đang giao') {
+      throw StateError('Chuyến đã hoàn thành: không được hủy trực tiếp. '
+          'Cần xử lý trả hàng/điều chỉnh có chứng từ.');
+    }
+    d['status'] = 'Đã hủy';
+    d['cancelledAt'] = DateTime.now().toUtc().toIso8601String();
+    d['cancelledBy'] = actor.id;
+    d['cancelReason'] = reason.trim();
+    log(actor, 'Hủy chuyến giao', id, reason.trim());
+  }
+
+  void setSalary(String id, int salary, int advance, Actor actor) {
+    actor.requireAdmin();
     if (salary < 0 || advance < 0 || advance > salary) {
       throw ArgumentError('Lương hoặc tiền ứng không hợp lệ.');
     }

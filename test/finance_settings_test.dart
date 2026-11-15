@@ -13,14 +13,17 @@ Finder input(String label) => find.byWidgetPredicate(
   (w) => w is TextField && w.decoration?.labelText == label,
 );
 
-Future<ShopController> open(WidgetTester tester) async {
+Future<ShopController> open(
+  WidgetTester tester, {
+  Role role = Role.sales,
+}) async {
   Get.testMode = true;
   tester.view.physicalSize = const Size(1600, 1100);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   final c = Get.put(ShopController(MemoryRepository(), ShopData.sample()))
-    ..enterDemo(Role.sales);
+    ..enterDemo(role);
   c.navigate(5);
   await tester.pumpWidget(const BayHaiApp());
   await tester.pumpAndSettle();
@@ -55,12 +58,26 @@ void main() {
     },
   );
 
-  testWidgets('Sales directly edit payroll through settings without password', (
-    tester,
-  ) async {
+  testWidgets('Sales cannot open payroll settings', (tester) async {
     final c = await open(tester);
+    final salaryBefore = c.data.payroll.first['salary'];
+    final advanceBefore = c.data.payroll.first['advance'];
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Lương nhân viên'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Cài đặt lương'), findsNothing);
+    expect(find.text('Tạo kỳ lương'), findsNothing);
+    expect(c.data.payroll.first['salary'], salaryBefore);
+    expect(c.data.payroll.first['advance'], advanceBefore);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Owner can edit payroll through settings', (tester) async {
+    final c = await open(tester, role: Role.owner);
     final p = c.data.payroll.first;
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Lương nhân viên'));
+    await tester.pumpAndSettle();
     final gear = find.byTooltip('Cài đặt lương');
+    expect(gear, findsOneWidget);
     await tester.ensureVisible(gear);
     await tester.tap(gear);
     await tester.pumpAndSettle();
@@ -72,7 +89,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(c.data.payroll.first['salary'], 9000000);
     expect(c.data.payroll.first['advance'], 1000000);
-    expect(c.actor!.role, Role.sales);
+    expect(c.actor!.role, Role.owner);
     expect(tester.takeException(), isNull);
   });
 

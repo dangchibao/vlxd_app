@@ -2,7 +2,9 @@ part of 'app.dart';
 
 // Hiển thị lô theo vị trí tạo trong danh sách. Không thay UUID trong Firebase.
 List<Json> _visibleInventoryLots(Product product) => product.lots
-    .where((lot) => lot['hiddenFromInventory'] != true)
+    .where((lot) => lot['hiddenFromInventory'] != true ||
+        (lot['area'] as int? ?? 0) != 0 ||
+        (lot['reserved'] as int? ?? 0) != 0)
     .toList();
 
 String _inventoryLotLabel(Product product, Json lot) {
@@ -70,6 +72,50 @@ Future<void> hideEmptyInventoryLot(
   });
 }
 
+Future<void> showHiddenInventoryLots(
+    BuildContext context, Product product) async {
+  final hidden = product.lots.where((l) => l['hiddenFromInventory'] == true &&
+      (l['area'] as int? ?? 0) == 0 &&
+      (l['reserved'] as int? ?? 0) == 0).toList();
+  if (hidden.isEmpty) return;
+  await safeDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text('Lô đã ẩn • ${product.code}'),
+      content: SizedBox(
+        width: 480,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final lot in hidden)
+              ListTile(
+                title: Text(_inventoryLotLabel(product, lot)),
+                subtitle: Text('Ngày nhập ${day(lot['date'])}'),
+                trailing: TextButton(
+                  onPressed: () => attempt(() async {
+                    await Get.find<ShopController>().change((data, actor) {
+                      actor.requireAdmin();
+                      final current = data.product(product.id).lots
+                          .firstWhere((l) => l['id'] == lot['id']);
+                      if (current['hiddenFromInventory'] != true) return;
+                      current['hiddenFromInventory'] = false;
+                      data.log(actor, 'Hiện lô hàng', product.code,
+                          'Khôi phục lô ${lot['id']} lên màn hình Kho.');
+                    });
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  }),
+                  child: const Text('Hiện lại'),
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx),
+          child: const Text('Đóng'))],
+    ),
+  );
+}
+
 class InventoryPage extends StatelessWidget {
   const InventoryPage({super.key});
   @override
@@ -97,6 +143,7 @@ class InventoryPage extends StatelessWidget {
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       titleText('${p.name} ${p.size}', size: 18),
+                      hint('SKU: ${p.code}'),
                       if (!p.active) badge('Ngừng kinh doanh'),
                       if (p.available <= 0)
                         badge('Hết hàng', warning: true)
@@ -143,7 +190,7 @@ class InventoryPage extends StatelessWidget {
                                   ? 'Ẩn lô hết hàng (giữ lịch sử)'
                                   : 'Lô đang có tồn hoặc giữ: không thể ẩn',
                               child: IconButton(
-                                icon: const Icon(Icons.close, color: Colors.red),
+                                icon: const Icon(Icons.visibility_off_outlined, color: Colors.orange),
                                 onPressed: c.busy ? null :
                                     () => hideEmptyInventoryLot(context, p, l),
                               ),
@@ -167,10 +214,19 @@ class InventoryPage extends StatelessWidget {
                         label: const Text('Kiểm kê / ảnh kho'),
                       ),
                       if (c.actor?.canAdmin == true &&
+                          p.lots.any((l) => l['hiddenFromInventory'] == true &&
+                              (l['area'] as int? ?? 0) == 0 &&
+                              (l['reserved'] as int? ?? 0) == 0))
+                        TextButton.icon(
+                          icon: const Icon(Icons.visibility_outlined),
+                          label: const Text('Xem lô đã ẩn'),
+                          onPressed: () => showHiddenInventoryLots(context, p),
+                        ),
+                      if (c.actor?.canAdmin == true &&
                           p.lots.any((l) => l['lotNumber'] is! int))
                         TextButton.icon(
                           icon: const Icon(Icons.push_pin_outlined),
-                          label: const Text('Cố định mã lô'),
+                          label: const Text('Đánh số lô cũ'),
                           onPressed: () => attempt(() async {
                             await c.change((d, a) =>
                                 d.assignMissingLotNumbers(p.id, a));
@@ -408,6 +464,7 @@ Future<void> inspectStock(BuildContext context, Product p) async {
                 }
                 final delta = target - (current['area'] as int);
                 current['area'] = target;
+                if (target != 0) current['hiddenFromInventory'] = false;
                 final at = DateTime.now().toUtc().toIso8601String();
                 d.stockMoves.insert(0, {
                   'product': p.code,
@@ -515,12 +572,13 @@ class DeliveriesPage extends StatelessWidget {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
+                      if (d['status'] == 'Đang giao')
                       OutlinedButton.icon(
                         onPressed: () => editDelivery(context, original: d),
                         icon: const Icon(Icons.edit_outlined),
                         label: const Text('Sửa / ảnh giao hàng'),
                       ),
-                      if (d['status'] != 'Đã xong')
+                      if (d['status'] == 'Đang giao')
                         FilledButton.icon(
                           onPressed: () => attempt(() async {
                             if (!await confirm(
@@ -537,6 +595,12 @@ class DeliveriesPage extends StatelessWidget {
                           icon: const Icon(Icons.check),
                           label: const Text('Xác nhận đã xong'),
                         ),
+                      if (d['status'] == 'Đang giao')
+                        TextButton.icon(
+                          icon: const Icon(Icons.cancel_outlined),
+                          label: const Text('Hủy chuyến'),
+                          onPressed: () => cancelDeliveryDialog(context, d),
+                        ),
                     ],
                   ),
                 ],
@@ -547,6 +611,28 @@ class DeliveriesPage extends StatelessWidget {
       ],
     );
   }
+}
+
+Future<void> cancelDeliveryDialog(BuildContext context, Json delivery) async {
+  final reason = TextEditingController();
+  await safeDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text('Hủy chuyến ${delivery['id']}?'),
+      content: SizedBox(width: 420,
+        child: TextField(controller: reason,
+          decoration: const InputDecoration(labelText: 'Lý do hủy (ít nhất 5 ký tự)'))),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Quay lại')),
+        FilledButton(onPressed: () => attempt(() async {
+          await Get.find<ShopController>().change((d, a) =>
+              d.cancelDelivery(delivery['id'] as String, reason.text, a));
+          if (ctx.mounted) Navigator.pop(ctx);
+        }), child: const Text('Xác nhận hủy chuyến')),
+      ],
+    ),
+  );
+  reason.dispose();
 }
 
 Future<void> editDelivery(BuildContext context, {Json? original}) async {
@@ -672,6 +758,10 @@ Future<void> editDelivery(BuildContext context, {Json? original}) async {
                   'images': images,
                 };
                 final i = db.deliveries.indexWhere((x) => x['id'] == id);
+                if (original != null && i >= 0 &&
+                    db.deliveries[i]['status'] != 'Đang giao') {
+                  throw StateError('Chuyến đã hoàn tất/hủy không thể sửa trực tiếp.');
+                }
                 if (original != null &&
                     (i < 0 ||
                         jsonEncode(db.deliveries[i]) != jsonEncode(original))) {
@@ -745,8 +835,25 @@ Future<String?> editCustomer(BuildContext context, {Json? original}) async {
         ),
         FilledButton(
           onPressed: () => attempt(() async {
-            if (name.text.trim().isEmpty) {
-              throw ArgumentError('Nhập tên khách hàng.');
+            if (name.text.trim().isEmpty || address.text.length > 500) {
+              throw ArgumentError('Nhập tên và địa chỉ tối đa 500 ký tự.');
+            }
+            final customers = Get.find<ShopController>().data.customers;
+            final contact = phone.text.replaceAll(RegExp(r'[^0-9]'), '');
+            final similar = customers.where((c) => c['id'] != id &&
+                ((contact.isNotEmpty &&
+                  (c['phone'] as String? ?? '').replaceAll(RegExp(r'[^0-9]'), '') == contact)
+                  || (ShopData.normalizeProductText(c['name'] as String? ?? '') ==
+                        ShopData.normalizeProductText(name.text) &&
+                      ShopData.normalizeProductText(c['address'] as String? ?? '') ==
+                        ShopData.normalizeProductText(address.text)))).toList();
+            if (similar.isNotEmpty) {
+              final existing = similar.first;
+              final proceed = await confirm(ctx, 'Khách hàng có thể bị trùng',
+                  'Đã có ${existing['name']} • ${existing['phone']} '
+                  '(mã ${existing['id']}). Kiểm tra công nợ trước khi tạo mới. '
+                  'Bạn vẫn muốn lưu hồ sơ riêng?');
+              if (!proceed || !ctx.mounted) return;
             }
             void save(ShopData d, Actor a) {
               final value = <String, dynamic>{

@@ -85,7 +85,7 @@ void main() {
     );
   }
   testWidgets(
-    'Sales can directly create and edit payroll without an admin password',
+    'Sales can view payroll but cannot create, edit, or archive it',
     (tester) async {
       Get.testMode = true;
       final c = Get.put(ShopController(MemoryRepository(), ShopData.sample()))
@@ -93,20 +93,28 @@ void main() {
       c.navigate(5);
       await tester.pumpWidget(const BayHaiApp());
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Lương nhân viên'));
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Lương nhân viên'));
       await tester.pumpAndSettle();
-      expect(find.text('Tạo kỳ lương'), findsOneWidget);
-      expect(
-        find.text('Nhân viên chỉ xem • không được sửa lương'),
-        findsNothing,
-      );
-      for (final button in tester.widgetList<IconButton>(
+
+      expect(find.text('Tạo kỳ lương'), findsNothing);
+      expect(find.byTooltip('Cài đặt lương'), findsNothing);
+      // find.byTooltip can match a RawTooltip descendant instead of
+      // IconButton. Restrict the finder to IconButton before reading widgets.
+      final iconButtons = tester.widgetList<IconButton>(
         find.byType(IconButton),
-      )) {
-        if (button.tooltip == 'Sửa lương / ghi chi') {
-          expect(button.onPressed, isNotNull);
-        }
+      ).toList();
+      final editButtons = iconButtons
+          .where((button) => button.tooltip == 'Sửa lương / ghi chi')
+          .toList();
+      final archiveButtons = iconButtons
+          .where((button) => button.tooltip == 'Xóa kỳ lương khỏi danh sách')
+          .toList();
+      expect(editButtons, isNotEmpty);
+      expect(archiveButtons, isNotEmpty);
+      for (final button in [...editButtons, ...archiveButtons]) {
+        expect(button.onPressed, isNull);
       }
+      expect(c.actor!.role, Role.sales);
       expect(tester.takeException(), isNull);
     },
   );

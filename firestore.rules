@@ -115,28 +115,42 @@ service cloud.firestore {
       match /products/{id} {
         function product() {
           let p = request.resource.data.value;
-          return p.keys().hasOnly(['id','code','name','size','supplier','price','ratio','minimum','active','images','lots','note','unit'])
+          return p.keys().hasOnly(['id','code','name','size','supplier','price','ratio','minimum','active','images','lots','note','unit','deleted','archivedFromLists'])
             && (!('unit' in p) || (p.unit is string && p.unit.size() > 0 && p.unit.size() <= 40))
             && p.code is string && p.name is string && p.name.size() > 0
             && p.price is int && p.price > 0 && p.price <= 1000000000
             && p.ratio is int && p.ratio >= 0 && p.minimum is int && p.minimum >= 0
             && (!('note' in p) || (p.note is string && p.note.size() <= 1000))
-            && p.active is bool && p.images is list && p.images.size() <= 11 && p.lots is list;
+            && p.active is bool
+            && (!('deleted' in p) || p.deleted is bool)
+            && (!('archivedFromLists' in p) || p.archivedFromLists is bool)
+            && p.images is list && p.images.size() <= 11 && p.lots is list;
         }
-        allow create, update: if envelope(id) && product();
+        // Product deletion/archive requires owner. SKU cannot drift after a
+        // stock lot exists (legacy stockMoves still reference the SKU string).
+        allow create: if envelope(id) && product()
+          && request.resource.data.value.get('deleted', false) == false
+          && request.resource.data.value.get('archivedFromLists', false) == false;
+        allow update: if envelope(id) && product()
+          && (request.resource.data.value.code == resource.data.value.code
+              || resource.data.value.lots.size() == 0)
+          && (owner() || request.resource.data.value.diff(resource.data.value)
+              .affectedKeys().hasOnly(['code','name','size','supplier','price',
+                'ratio','minimum','active','images','lots','note','unit']));
       }
       match /customers/{id} {
         function validCustomer() {
           let c = request.resource.data.value;
-          return c.keys().hasOnly(['id','name','phone','active','receivableAdjustment','receivedAdjustment','ledgerVersion'])
+          return c.keys().hasOnly(['id','name','phone','address','active','receivableAdjustment','receivedAdjustment','ledgerVersion'])
             && c.name is string && c.name.size() > 0 && c.phone is string
+            && (!('address' in c) || (c.address is string && c.address.size() <= 500))
             && (!('active' in c) || c.active is bool)
             && (!('receivableAdjustment' in c) || c.receivableAdjustment is int)
             && (!('receivedAdjustment' in c) || c.receivedAdjustment is int)
             && (!('ledgerVersion' in c) || (c.ledgerVersion is int && c.ledgerVersion >= 0));
         }
         allow create: if envelope(id) && validCustomer()
-          && request.resource.data.value.keys().hasOnly(['id','name','phone']);
+          && request.resource.data.value.keys().hasOnly(['id','name','phone','address']);
         allow update: if envelope(id) && validCustomer();
       }
       match /orders/{id} {
@@ -145,7 +159,7 @@ service cloud.firestore {
           return o.total is int && o.total >= 0 && o.subtotal is int && o.subtotal >= 0
             && o.ship is int && o.ship >= 0 && o.total == o.subtotal + o.ship
             && o.lines is list && o.lines.size() > 0 && o.payments is list
-            && o.status in ['Giữ hàng','Đã bán','Đã hủy'] && o.customerId is string;
+            && o.status in ['Giữ hàng','Đã bán','Đã hủy','Đã trả hàng'] && o.customerId is string;
         }
         allow create: if envelope(id) && amounts()
           && request.resource.data.value.actor == request.auth.uid
@@ -154,22 +168,75 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/stores/$(storeId)/requests/$(request.resource.data.value.requestId)).data.value.orderId == id;
         allow update: if envelope(id) && amounts()
           && request.resource.data.value.diff(resource.data.value).affectedKeys()
-            .hasOnly(['status','soldAt','payments','refund','cancelledAt','cancelledBy','cancelReason']);
+            .hasOnly(['status','soldAt','payments','refund','refundMethod',
+              'refundConfirmedBy','refundConfirmedAt','cancelledAt','cancelledBy',
+              'cancelReason','returnId','returnedAt','returnedBy','returnReason'])
+          && (
+            // Payment correction may change ONLY the payments list.
+            (resource.data.value.status == 'Đã bán'
+              && request.resource.data.value.status == 'Đã bán'
+              && request.resource.data.value.diff(resource.data.value)
+                  .affectedKeys().hasOnly(['payments']))
+            || (resource.data.value.status == 'Giữ hàng'
+              && request.resource.data.value.status == 'Giữ hàng'
+              && request.resource.data.value.diff(resource.data.value)
+                  .affectedKeys().hasOnly(['payments']))
+            || (resource.data.value.status == 'Giữ hàng'
+              && request.resource.data.value.status == 'Đã bán'
+              && request.resource.data.value.diff(resource.data.value)
+                  .affectedKeys().hasOnly(['status','soldAt']))
+            || (resource.data.value.status == 'Giữ hàng'
+              && request.resource.data.value.status == 'Đã hủy'
+              && request.resource.data.value.cancelledBy == request.auth.uid
+              && request.resource.data.value.cancelReason is string
+              && request.resource.data.value.cancelReason.size() > 0
+              && (request.resource.data.value.refund == 0 ||
+                  (owner() && request.resource.data.value.refundConfirmedBy == request.auth.uid
+                    && request.resource.data.value.refundMethod is string
+                    && request.resource.data.value.refundMethod.size() > 0)))
+            || (resource.data.value.status == 'Đã bán'
+              && request.resource.data.value.status == 'Đã trả hàng'
+              && owner()
+              && request.resource.data.value.returnedBy == request.auth.uid
+              && request.resource.data.value.returnId is string
+              && request.resource.data.value.returnReason is string
+              && request.resource.data.value.returnReason.size() >= 5
+              && request.resource.data.value.refund is int
+              && request.resource.data.value.refund >= 0
+              && request.resource.data.value.refund <= request.resource.data.value.total)
+          );
       }
       match /requests/{id} {
         allow create: if envelope(id)
           && getAfter(/databases/$(database)/documents/stores/$(storeId)/orders/$(request.resource.data.value.orderId)).data.value.requestId == id;
       }
       match /deliveries/{id} {
-        allow create, update: if envelope(id)
-          && request.resource.data.value.orderId is string
-          && request.resource.data.value.driver is string && request.resource.data.value.address is string
-          && request.resource.data.value.fee is int && request.resource.data.value.fee >= 0
-          && request.resource.data.value.cost is int && request.resource.data.value.cost >= 0
-          && request.resource.data.value.status in ['Đang giao','Đã xong','Đã hủy'];
+        function validDelivery() {
+          let d = request.resource.data.value;
+          return d.orderId is string && d.driver is string && d.address is string
+            && d.fee is int && d.fee >= 0 && d.cost is int && d.cost >= 0
+            && d.status in ['Đang giao','Đã xong','Đã hủy'];
+        }
+        allow create: if envelope(id) && validDelivery()
+          && request.resource.data.value.status == 'Đang giao';
+        allow update: if envelope(id) && validDelivery()
+          && resource.data.value.status == 'Đang giao'
+          && (
+            (request.resource.data.value.status == 'Đang giao')
+            || (request.resource.data.value.status == 'Đã xong'
+              && request.resource.data.value.finishedBy == request.auth.uid
+              && request.resource.data.value.diff(resource.data.value)
+                .affectedKeys().hasOnly(['status','finishedBy','finishedAt']))
+            || (request.resource.data.value.status == 'Đã hủy'
+              && request.resource.data.value.cancelledBy == request.auth.uid
+              && request.resource.data.value.cancelReason is string
+              && request.resource.data.value.cancelReason.size() >= 5
+              && request.resource.data.value.diff(resource.data.value)
+                .affectedKeys().hasOnly(['status','cancelledBy','cancelledAt','cancelReason']))
+          );
       }
       match /payroll/{id} {
-        allow create, update: if envelope(id)
+        allow create, update: if envelope(id) && owner()
           && request.resource.data.value.salary is int && request.resource.data.value.salary >= 0
           && request.resource.data.value.advance is int && request.resource.data.value.advance >= 0
           && request.resource.data.value.advance <= request.resource.data.value.salary;

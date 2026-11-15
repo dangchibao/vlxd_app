@@ -68,6 +68,8 @@ String _accDateDisplay(String date) {
 }
 
 String _accCustomer(ShopData data, Map<String, dynamic> order) {
+  final customerSnapshot = _accString(order['customerName']).trim();
+  if (customerSnapshot.isNotEmpty) return customerSnapshot;
   final id = _accString(order['customerId']);
   for (final c in data.customers) {
     if (_accString(c['id']) == id) return _accString(c['name']);
@@ -134,17 +136,21 @@ List<List<Object?>> _accPaymentRows(ShopData data) {
         _accString(p['voidReason']),
       ]);
     }
-    // A manual refund is a cash OUT, not another receipt or silent deletion.
-    if (o['status'] == 'Đã trả hàng' && _accInt(o['refund']) > 0) {
+    // A physical refund is cash OUT and must also appear for cancelled holds.
+    if (['Đã trả hàng', 'Đã hủy'].contains(o['status']) &&
+        _accInt(o['refund']) > 0) {
+      final returnedSale = o['status'] == 'Đã trả hàng';
       rows.add([
         _accString(o['id']),
-        _accString(o['returnId']),
-        _accDate(o['returnedAt']),
+        _accString(returnedSale ? o['returnId'] : 'refund-${o['id']}'),
+        _accDate(returnedSale ? o['returnedAt'] :
+          (o['refundConfirmedAt'] ?? o['cancelledAt'])),
         _accCustomer(data, order),
         -_accInt(o['refund']),
-        'Hoàn tiền',
-        _accString(o['returnedBy']),
-        _accString(o['returnReason']),
+        returnedSale ? 'Hoàn tiền trả hàng' : 'Hoàn cọc giữ hàng',
+        _accString(returnedSale ? o['returnedBy'] :
+          (o['refundConfirmedBy'] ?? o['cancelledBy'])),
+        _accString(returnedSale ? o['returnReason'] : o['cancelReason']),
       ]);
     }
   }

@@ -163,15 +163,29 @@ class ProductsPage extends StatelessWidget {
               .toList(),
         ),
         const SizedBox(height: 12),
-        if (c.visibleProducts.isEmpty)
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: ['Đang bán', 'Ngừng bán', 'Đã ẩn', 'Xóa nhầm', 'Tất cả']
+              .map((value) => ChoiceChip(
+                    label: Text(value),
+                    selected: c.catalogStatus == value,
+                    onSelected: (_) {
+                      c.catalogStatus = value;
+                      c.update();
+                    },
+                  )).toList(),
+        ),
+        const SizedBox(height: 12),
+        if (c.catalogProducts.isEmpty)
           const EmptyState(
             'Không tìm thấy sản phẩm',
             'Thử mã hoặc tên khác.',
             Icons.search_off,
           ),
         VlxdPagedList<Product>(
-          key: ValueKey('catalog-${c.query}-${c.group}'),
-          items: c.visibleProducts,
+          key: ValueKey('catalog-${c.query}-${c.group}-${c.catalogStatus}'),
+          items: c.catalogProducts,
           pageSize: 10,
           itemBuilder: (p) => Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -199,6 +213,9 @@ class ProductsPage extends StatelessWidget {
                                 ),
                               ),
                               hint('${p.code} • ${p.size} • ${p.supplier}'),
+                              if (p.deleted) hint('Đã xóa mềm • giữ mã SKU')
+                              else if (p.archivedFromLists) hint('Đã ẩn khỏi danh sách')
+                              else if (!p.active) hint('Ngừng kinh doanh'),
                               const SizedBox(height: 6),
                               Wrap(
                                 crossAxisAlignment: WrapCrossAlignment.center,
@@ -269,24 +286,69 @@ class ProductsPage extends StatelessWidget {
   Widget actions(BuildContext context, Product p) => Wrap(
     spacing: 2,
     children: [
-      IconButton(
-        tooltip: 'Chi tiết và sửa sản phẩm',
-        onPressed: () => editProduct(context, original: p),
-        icon: const Icon(Icons.edit_outlined),
-      ),
-      IconButton(
-        tooltip: 'Mã vạch và in',
-        onPressed: () => showBarcode(context, p),
-        icon: const Icon(Icons.qr_code_2),
-      ),
-      IconButton(
-        tooltip: 'Xóa / ngừng kinh doanh',
-        color: Colors.red,
-        onPressed: () => archiveProductDialog(context, p),
-        icon: const Icon(Icons.delete_outline),
-      ),
+      if (p.active && !p.deleted && !p.archivedFromLists) ...[
+        IconButton(
+          tooltip: 'Chi tiết và sửa sản phẩm',
+          onPressed: () => editProduct(context, original: p),
+          icon: const Icon(Icons.edit_outlined),
+        ),
+        IconButton(
+          tooltip: 'Mã vạch và in',
+          onPressed: () => showBarcode(context, p),
+          icon: const Icon(Icons.qr_code_2),
+        ),
+        IconButton(
+          tooltip: 'Ngừng kinh doanh (không xóa dữ liệu)',
+          color: Colors.red,
+          onPressed: () => archiveProductDialog(context, p),
+          icon: const Icon(Icons.block_outlined),
+        ),
+      ] else if (p.deleted) ...[
+        if (Get.find<ShopController>().actor?.canAdmin == true)
+          TextButton.icon(
+            icon: const Icon(Icons.restore),
+            label: const Text('Khôi phục xóa nhầm'),
+            onPressed: () => restoreCatalogProduct(context, p, 'deleted'),
+          ),
+      ] else ...[
+        if (p.archivedFromLists)
+          TextButton.icon(
+            icon: const Icon(Icons.unarchive_outlined),
+            label: const Text('Hiện lại'),
+            onPressed: () => restoreCatalogProduct(context, p, 'archived'),
+          )
+        else
+          TextButton.icon(
+            icon: const Icon(Icons.restore),
+            label: const Text('Kinh doanh lại'),
+            onPressed: () => restoreCatalogProduct(context, p, 'inactive'),
+          ),
+      ],
     ],
   );
+}
+
+Future<void> restoreCatalogProduct(
+    BuildContext context, Product p, String status) async {
+  if (!await confirm(
+    context,
+    'Khôi phục ${p.name}?',
+    'Dùng lại đúng mã SKU ${p.code}, giữ nguyên lịch sử và lô cũ.',
+  )) {
+    return;
+  }
+  await attempt(() async {
+    final controller = Get.find<ShopController>();
+    await controller.change((d, a) {
+      if (status == 'deleted') {
+        d.restoreDeletedProduct(p.id, a);
+      } else if (status == 'archived') {
+        d.unarchiveDiscontinuedProduct(p.id, a);
+      } else {
+        d.restoreProduct(p.id, a);
+      }
+    });
+  });
 }
 
 Future<void> archiveProductDialog(BuildContext context, Product p) async {
@@ -335,7 +397,7 @@ List<Product> _similarNamedProducts(ShopData data, String input, String excludeI
   if (normalized.length < 3) return const [];
   final pieces = normalized.split(' ').where((p) => p.length >= 3).toSet();
   return data.products.where((p) {
-    if (p.id == excludeId || p.deleted) return false;
+    if (p.id == excludeId) return false;
     final title = ShopData.normalizeProductText(p.name);
     if (title == normalized || title.contains(normalized) ||
         normalized.contains(title)) {

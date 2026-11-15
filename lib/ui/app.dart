@@ -98,8 +98,12 @@ class _BayHaiAppState extends State<BayHaiApp> {
       locale: const Locale('vi', 'VN'),
       supportedLocales: const [Locale('vi', 'VN'), Locale('en', 'US')],
       localizationsDelegates: const [
+        // Flutter 3.47 deprecated the old facade; preserve existing localization
+        // behavior until the material_ui / cupertino_ui migration is tested.
+        // ignore: deprecated_member_use
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
+        // ignore: deprecated_member_use
         GlobalCupertinoLocalizations.delegate,
       ],
       builder: (context, child) {

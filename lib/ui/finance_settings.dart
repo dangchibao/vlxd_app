@@ -103,6 +103,10 @@ Future<void> editCustomerBook(BuildContext context, String id) async {
 
 Future<void> openPayrollSettings(BuildContext context) async {
   final c = Get.find<ShopController>();
+  if (c.actor?.canAdmin != true) {
+    await attempt(() async => throw StateError('Chỉ chủ được quản lý lương.'));
+    return;
+  }
   final chosen = await safeDialog<String>(
     context: context,
     builder: (ctx) => SimpleDialog(

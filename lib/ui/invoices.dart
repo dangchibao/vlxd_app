@@ -1,11 +1,14 @@
 part of 'app.dart';
 
-String invoiceCustomer(ShopData data, Json order) =>
-    data.customers
-        .where((c) => c['id'] == order['customerId'])
-        .map((c) => c['name'] as String)
-        .firstOrNull ??
-    (order['customerId'] == '' ? 'Khách lẻ' : 'Khách ${order['customerId']}');
+String invoiceCustomer(ShopData data, Json order) {
+  final saved = (order['customerName'] as String?)?.trim();
+  if (saved != null && saved.isNotEmpty) return saved;
+  return data.customers
+          .where((c) => c['id'] == order['customerId'])
+          .map((c) => c['name'] as String)
+          .firstOrNull ??
+      (order['customerId'] == '' ? 'Khách lẻ' : 'Khách ${order['customerId']}');
+}
 
 class InvoicesPage extends StatefulWidget {
   const InvoicesPage({super.key});

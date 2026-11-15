@@ -44,7 +44,7 @@ Future<void> createPayroll(BuildContext context) async {
               );
             }
             await Get.find<ShopController>().change((d, actor) {
-              actor.requireAccess();
+              actor.requireAdmin();
               if (d.payroll.any((p) => p['id'] == id)) return;
               if (d.payroll.any(
                 (p) =>
@@ -114,7 +114,7 @@ class _OrdersPageState extends State<OrdersPage> {
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: ['Tất cả', 'Giữ hàng', 'Đã bán', 'Đã hủy']
+              children: ['Tất cả', 'Giữ hàng', 'Đã bán', 'Đã trả hàng', 'Đã hủy']
                   .map(
                     (v) => ChoiceChip(
                       label: Text(v),
@@ -230,12 +230,18 @@ Future<void> cancelHeldDialog(BuildContext context, Json o) async {
               ),
               const SizedBox(height: 16),
               field(reason, 'Lý do hủy'),
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                value: refunded,
-                onChanged: (v) => set(() => refunded = v!),
-                title: const Text('Đã hoàn tiền cọc cho khách (nếu có)'),
-              ),
+              if (ShopData.collected(o) > 0) ...[
+                const Text('Chỉ tài khoản chủ được xác nhận đã hoàn tiền thực tế. '
+                    'Nếu chưa hoàn cọc, không được hủy đơn theo quy trình này.'),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: refunded,
+                  onChanged: Get.find<ShopController>().actor?.canAdmin == true
+                      ? (v) => set(() => refunded = v ?? false)
+                      : null,
+                  title: const Text('Chủ xác nhận đã hoàn cọc ngoài phần mềm'),
+                ),
+              ],
             ],
           ),
         ),
@@ -245,11 +251,13 @@ Future<void> cancelHeldDialog(BuildContext context, Json o) async {
             child: const Text('Quay lại'),
           ),
           FilledButton(
-            onPressed: !refunded
+            onPressed: (ShopData.collected(o) > 0 && !refunded)
                 ? null
                 : () => attempt(() async {
                     await Get.find<ShopController>().change(
-                      (d, a) => d.cancelHeld(o['id'], reason.text, a),
+                      (d, a) => d.cancelHeld(o['id'], reason.text, a,
+                          depositRefunded: refunded,
+                          refundMethod: refunded ? 'Tiền mặt (chủ xác nhận)' : ''),
                     );
                     if (ctx.mounted) Navigator.pop(ctx);
                   }),

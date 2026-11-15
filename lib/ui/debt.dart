@@ -663,11 +663,13 @@ class _DebtPageState extends State<DebtPage> {
               spacing: 8,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
+                if (c.actor?.canAdmin == true)
                 FilledButton.icon(
                   onPressed: () => createPayroll(context),
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text('Tạo kỳ lương'),
                 ),
+                if (c.actor?.canAdmin == true)
                 IconButton(
                   tooltip: 'Cài đặt lương',
                   onPressed: c.busy ? null : () => openPayrollSettings(context),
@@ -712,7 +714,7 @@ class _DebtPageState extends State<DebtPage> {
                           children: [
                             IconButton(
                               tooltip: 'Sửa lương / ghi chi',
-                              onPressed: c.busy
+                              onPressed: (c.busy || c.actor?.canAdmin != true)
                                   ? null
                                   : () => editSalary(context, p),
                               icon: const Icon(
@@ -722,7 +724,7 @@ class _DebtPageState extends State<DebtPage> {
                             ),
                             IconButton(
                               tooltip: 'Xóa kỳ lương khỏi danh sách',
-                              onPressed: c.busy
+                              onPressed: (c.busy || c.actor?.canAdmin != true)
                                   ? null
                                   : () => _archivePayroll(context, c, p),
                               icon: const Icon(Icons.close, color: Colors.red),
