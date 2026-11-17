@@ -1,6 +1,16 @@
 part of 'app.dart';
 
-// Hiển thị lô theo vị trí tạo trong danh sách. Không thay UUID trong Firebase.
+// UUID vẫn là khóa lưu trữ; nhãn cũ phải ổn định khi đổi thứ tự lô.
+// Chỉ khi người quản lý đánh số thì các lô cũ có số 001, 002, ... cố định.
+String _legacyLotCode(Object? id) {
+  final source = id?.toString() ?? '';
+  var hash = 0x811c9dc5;
+  for (final code in source.codeUnits) {
+    hash = ((hash ^ code) * 0x01000193) & 0xffffffff;
+  }
+  return hash.toRadixString(16).toUpperCase().padLeft(8, '0');
+}
+
 List<Json> _visibleInventoryLots(Product product) => product.lots
     .where((lot) => lot['hiddenFromInventory'] != true ||
         (lot['area'] as int? ?? 0) != 0 ||
@@ -9,11 +19,13 @@ List<Json> _visibleInventoryLots(Product product) => product.lots
 
 String _inventoryLotLabel(Product product, Json lot) {
   final index = product.lots.indexWhere((item) => item['id'] == lot['id']);
-  final number = lot['lotNumber'] is int && (lot['lotNumber'] as int) > 0
-      ? lot['lotNumber'] as int
-      : (index + 1);
-  return index < 0 ? 'Lô không xác định' :
-      '${product.code} – Lô ${number.toString().padLeft(3, '0')}';
+  if (index < 0) return 'Lô không xác định';
+  final rawNumber = lot['lotNumber'];
+  if (rawNumber is int && rawNumber > 0) {
+    return '${product.code} – Lô ${rawNumber.toString().padLeft(3, '0')}';
+  }
+  // Chưa cấp số: một mã ổn định lấy từ UUID, không phụ thuộc thứ tự list.
+  return '${product.code} – Lô cũ ${_legacyLotCode(lot['id'])}';
 }
 
 Future<void> hideEmptyInventoryLot(
@@ -223,7 +235,7 @@ class InventoryPage extends StatelessWidget {
                           onPressed: () => showHiddenInventoryLots(context, p),
                         ),
                       if (c.actor?.canAdmin == true &&
-                          p.lots.any((l) => l['lotNumber'] is! int))
+                          p.lots.any((l) => l['lotNumber'] is! int || (l['lotNumber'] as int) <= 0))
                         TextButton.icon(
                           icon: const Icon(Icons.push_pin_outlined),
                           label: const Text('Đánh số lô cũ'),

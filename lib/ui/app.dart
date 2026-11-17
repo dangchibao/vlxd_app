@@ -28,6 +28,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 import '../domain/shop.dart';
+import '../domain/product_discovery.dart';
 import '../domain/invoice_filter.dart';
 import 'print_service.dart';
 import '../utils/money_input_formatter.dart';

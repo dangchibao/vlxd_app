@@ -200,7 +200,13 @@ class ShopData {
   // Normalized for searching and exact duplicate checking (including archived items).
   // Intentionally keep product identity/ID independent from the human-readable code.
   static String normalizeProductText(String value) {
-    var text = value.trim().toLowerCase();
+    var text = value.trim().toLowerCase().replaceAllMapped(
+      RegExp(r'(\d)\s*[x×]\s*(\d)'),
+      (match) => '${match[1]}x${match[2]}',
+    ).replaceAllMapped(
+      RegExp(r'(\d)\s+(kg|g|mm|cm|ml|lit|l)\b'),
+      (match) => '${match[1]}${match[2]}',
+    );
     const accented = [
       'àáạảãâầấậẩẫăằắặẳẵ',
       'èéẹẻẽêềếệểễ',

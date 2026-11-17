@@ -129,7 +129,7 @@ class ProductsPage extends StatelessWidget {
               width: math.min(420, MediaQuery.sizeOf(context).width - 32),
               child: TextField(
                 decoration: const InputDecoration(
-                  hintText: 'Tìm mã, tên gạch, nhà cung cấp',
+                  hintText: 'Tìm mã, tên, quy cách, nhà cung cấp (có hoặc không dấu)',
                   prefixIcon: Icon(Icons.search),
                 ),
                 onChanged: (v) {
@@ -146,21 +146,35 @@ class ProductsPage extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
+        hint('Nhóm hàng gợi ý (tự nhận diện; chưa thay đổi phân loại đã lưu)'),
+        const SizedBox(height: 6),
         Wrap(
           spacing: 8,
-          runSpacing: 8,
-          children: ['Tất cả', '30×60', '60×60', '80×80']
-              .map(
-                (g) => ChoiceChip(
-                  label: Text(g),
-                  selected: c.group == g,
-                  onSelected: (_) {
-                    c.group = g;
-                    c.update();
-                  },
-                ),
-              )
-              .toList(),
+          runSpacing: 6,
+          children: c.catalogCategories.map((category) => ChoiceChip(
+            label: Text(category),
+            selected: c.catalogCategory == category,
+            onSelected: (_) {
+              c.catalogCategory = category;
+              c.group = 'Tất cả';
+              c.update();
+            },
+          )).toList(),
+        ),
+        const SizedBox(height: 12),
+        hint('Lọc quy cách / kích thước thực tế'),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: c.catalogSpecifications.map((specification) => ChoiceChip(
+            label: Text(specification),
+            selected: c.group == specification,
+            onSelected: (_) {
+              c.group = specification;
+              c.update();
+            },
+          )).toList(),
         ),
         const SizedBox(height: 12),
         Wrap(
@@ -184,7 +198,7 @@ class ProductsPage extends StatelessWidget {
             Icons.search_off,
           ),
         VlxdPagedList<Product>(
-          key: ValueKey('catalog-${c.query}-${c.group}-${c.catalogStatus}'),
+          key: ValueKey('catalog-${c.query}-${c.catalogCategory}-${c.group}-${c.catalogStatus}'),
           items: c.catalogProducts,
           pageSize: 10,
           itemBuilder: (p) => Padding(
@@ -392,22 +406,6 @@ Future<void> archiveProductDialog(BuildContext context, Product p) async {
   });
 }
 
-List<Product> _similarNamedProducts(ShopData data, String input, String excludeId) {
-  final normalized = ShopData.normalizeProductText(input);
-  if (normalized.length < 3) return const [];
-  final pieces = normalized.split(' ').where((p) => p.length >= 3).toSet();
-  return data.products.where((p) {
-    if (p.id == excludeId) return false;
-    final title = ShopData.normalizeProductText(p.name);
-    if (title == normalized || title.contains(normalized) ||
-        normalized.contains(title)) {
-      return true;
-    }
-    final common = pieces.intersection(title.split(' ').toSet()).length;
-    return pieces.length >= 2 && common >= 2;
-  }).take(4).toList();
-}
-
 Future<void> editProduct(BuildContext context, {Product? original}) async {
   final c = Get.find<ShopController>();
   final p = original == null
@@ -436,6 +434,8 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
       ),
       note = TextEditingController(text: p.note);
   var saving = false;
+  String? reuseId;
+  String? reuseAction;
   await safeDialog<void>(
     context: context,
     builder: (ctx) => StatefulBuilder(
@@ -451,38 +451,101 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
                 field(
                   code,
                   'Mã sản phẩm / mã vạch',
+                  onChanged: (_) => set(() {}),
                   helperText:
                       'Mã gợi ý tự động; có thể sửa nếu cần. Không tạo mã khác cho một sản phẩm đã tồn tại.',
                 ),
                 field(name, 'Tên sản phẩm', onChanged: (_) => set(() {})),
-                if (_similarNamedProducts(c.data, name.text, p.id).isNotEmpty) ...[
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    margin: const EdgeInsets.only(bottom: 14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFF7E5),
-                      borderRadius: BorderRadius.circular(9),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Đã có sản phẩm có tên gần giống:',
-                            style: TextStyle(fontWeight: FontWeight.bold)),
-                        for (final other in _similarNamedProducts(c.data, name.text, p.id))
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text('${other.name} • ${other.code} • ${other.unit}'
-                                ' • ${other.active ? 'Đang bán' : 'Ngừng kinh doanh'}'),
-                          ),
-                        const Text('Kiểm tra và dùng lại sản phẩm cũ nếu trùng thật.'),
-                      ],
-                    ),
-                  ),
+                field(size, 'Kích thước / quy cách (tùy chọn)', onChanged: (_) => set(() {})),
+                field(unit, 'Đơn vị (tự nhập, ví dụ: m², m³, tấm, bao)', onChanged: (_) => set(() {})),
+                field(supplier, 'Nhà cung cấp (tùy chọn)', onChanged: (_) => set(() {})),
+                if (original == null) ...[
+                  Builder(builder: (ctx) {
+                    final suggestions = ProductDiscovery.suggest(
+                      products: c.data.products,
+                      name: name.text,
+                      code: code.text,
+                      specification: size.text,
+                      unit: unit.text,
+                      supplier: supplier.text,
+                      excludeId: p.id,
+                    );
+                    if (suggestions.isEmpty) return const SizedBox.shrink();
+                    return Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF7E5),
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Có thể sản phẩm đã tồn tại:',
+                              style: TextStyle(fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 5),
+                          const Text('Hãy đối chiếu tên, quy cách, đơn vị và nhà cung cấp. '
+                              'Nhà cung cấp khác chưa chắc là hàng khác hãng.'),
+                          for (final suggestion in suggestions) ...[
+                            const Divider(height: 14),
+                            Text(suggestion.product.name,
+                                style: const TextStyle(fontWeight: FontWeight.w600)),
+                            Text('Mã: ${suggestion.product.code} • '
+                                '${suggestion.product.size} • ${suggestion.product.unit}'),
+                            Text('Nhà cung cấp: ${suggestion.product.supplier.isEmpty ? 'Chưa ghi' : suggestion.product.supplier} '
+                                '• Tồn: ${area(suggestion.product.stock)} ${suggestion.product.unit}'),
+                            Text(suggestion.explanation,
+                                style: const TextStyle(color: Color(0xFF76500B))),
+                            if (suggestion.product.deleted ||
+                                suggestion.product.archivedFromLists ||
+                                !suggestion.product.active)
+                              const Text('Sản phẩm đã ngừng/ẩn/xóa mềm. '
+                                  'Hãy khôi phục trước khi nhập hàng.'),
+                            Wrap(
+                              spacing: 8,
+                              children: [
+                                TextButton.icon(
+                                  onPressed: saving ? null : () {
+                                    reuseId = suggestion.product.id;
+                                    reuseAction = 'view';
+                                    Navigator.pop(ctx);
+                                  },
+                                  icon: const Icon(Icons.open_in_new_outlined),
+                                  label: const Text('Mở sản phẩm cũ'),
+                                ),
+                                if (!suggestion.product.active ||
+                                    suggestion.product.deleted ||
+                                    suggestion.product.archivedFromLists)
+                                  TextButton.icon(
+                                    onPressed: saving ? null : () {
+                                      reuseId = suggestion.product.id;
+                                      reuseAction = 'restore';
+                                      Navigator.pop(ctx);
+                                    },
+                                    icon: const Icon(Icons.restore_outlined),
+                                    label: const Text('Khôi phục mã cũ'),
+                                  ),
+                                if (suggestion.product.active &&
+                                    !suggestion.product.deleted &&
+                                    !suggestion.product.archivedFromLists)
+                                  TextButton.icon(
+                                    onPressed: saving ? null : () {
+                                      reuseId = suggestion.product.id;
+                                      reuseAction = 'receive';
+                                      Navigator.pop(ctx);
+                                    },
+                                    icon: const Icon(Icons.add_box_outlined),
+                                    label: const Text('Dùng lại & nhập kho'),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
                 ],
-                field(size, 'Kích thước (tùy chọn)'),
-                field(unit, 'Đơn vị (tự nhập, ví dụ: m², m³, tấm, bao)'),
-                field(supplier, 'Nhà cung cấp (tùy chọn)'),
                 field(price, 'Giá bán đ/đơn vị', moneyInput: true),
                 field(
                   ratio,
@@ -693,6 +756,28 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
     note,
   ]) {
     controller.dispose();
+  }
+  if (reuseId != null && context.mounted) {
+    // Use the latest product snapshot; never create a new SKU on reuse.
+    final selected = c.data.products.where((item) => item.id == reuseId)
+        .firstOrNull;
+    if (selected == null) return;
+    if (reuseAction == 'restore') {
+      final status = selected.deleted ? 'deleted' :
+          selected.archivedFromLists ? 'archived' : 'inactive';
+      await restoreCatalogProduct(context, selected, status);
+    } else if (reuseAction == 'receive') {
+      if (!selected.active || selected.deleted || selected.archivedFromLists) {
+        await attempt(() async {
+          throw StateError('Sản phẩm cũ đã ngừng bán hoặc bị ẩn. '
+              'Hãy khôi phục trước khi nhập kho.');
+        });
+      } else {
+        await receiveStock(context, selected);
+      }
+    } else {
+      await editProduct(context, original: selected);
+    }
   }
 }
 

@@ -11,6 +11,7 @@ import '../data/sync/offline_checkout_command.dart';
 import '../data/sync/offline_book_operation.dart';
 import '../data/sync/outbox_repository.dart';
 import '../domain/shop.dart';
+import '../domain/product_discovery.dart';
 
 class ShopController extends GetxController {
   final ShopRepository repository;
@@ -248,6 +249,7 @@ class ShopController extends GetxController {
   int page = 0;
   String query = '';
   String group = 'Tất cả';
+  String catalogCategory = 'Tất cả';
 
   String _requestId = const Uuid().v4();
   String get requestId => _requestId;
@@ -362,6 +364,29 @@ class ShopController extends GetxController {
 
   String catalogStatus = 'Đang bán';
 
+  // Automatically derived filters: no SKU-code convention and no Firestore
+  // schema change. Suggestions are not saved as authoritative categories.
+  List<String> get catalogCategories {
+    final values = data.products
+        .map(ProductDiscovery.suggestedCategory)
+        .toSet().toList()..sort();
+    return ['Tất cả', ...values];
+  }
+
+  List<String> get catalogSpecifications {
+    final values = data.products
+        .where((p) => catalogCategory == 'Tất cả' ||
+            ProductDiscovery.suggestedCategory(p) == catalogCategory)
+        .map((p) => ProductDiscovery.displaySpecification(p.size))
+        .where((value) => value.isNotEmpty)
+        .toSet().toList()..sort();
+    return ['Tất cả', ...values];
+  }
+
+  bool _matchesCatalogSpecification(Product p) =>
+      group == 'Tất cả' ||
+      ProductDiscovery.sameSpecification(p.size, group);
+
   List<Product> get catalogProducts => data.products.where((p) {
     final statusMatches = switch (catalogStatus) {
       'Ngừng bán' => !p.active && !p.deleted && !p.archivedFromLists,
@@ -371,21 +396,17 @@ class ShopController extends GetxController {
       _ => p.active && !p.deleted && !p.archivedFromLists,
     };
     return statusMatches &&
-        (group == 'Tất cả' || p.size == group) &&
-        '${p.code} ${p.name} ${p.supplier}'.trim().toLowerCase()
-            .contains(query.trim().toLowerCase());
+        (catalogCategory == 'Tất cả' ||
+            ProductDiscovery.suggestedCategory(p) == catalogCategory) &&
+        _matchesCatalogSpecification(p) &&
+        ProductDiscovery.hasText(p, query);
   }).toList();
 
   List<Product> get visibleProducts => data.products
-      .where(
-        (p) =>
-            p.active &&
-            !p.deleted &&
-            (group == 'Tất cả' || p.size == group) &&
-            '${p.code} ${p.name} ${p.supplier}'.toLowerCase().contains(
-              query.toLowerCase(),
-            ),
-      )
+      .where((p) =>
+          p.active && !p.deleted && !p.archivedFromLists &&
+          _matchesCatalogSpecification(p) &&
+          ProductDiscovery.hasText(p, query))
       .toList();
 
   Future<T> change<T>(T Function(ShopData d, Actor actor) operation) async {
@@ -447,6 +468,7 @@ class ShopController extends GetxController {
     page = index;
     query = '';
     group = 'Tất cả';
+    catalogCategory = 'Tất cả';
     update();
   }
 
