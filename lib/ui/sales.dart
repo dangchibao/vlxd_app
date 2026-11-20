@@ -7,6 +7,10 @@ class SalesPage extends StatelessWidget {
     final c = Get.find<ShopController>();
     return LayoutBuilder(
       builder: (context, box) {
+        // Mobile-first sales layout; desktop and tablet keep their old widgets.
+        if (box.maxWidth < 600) {
+          return VlxdMobileSalesView();
+        }
         final catalogue = Column(
           children: [
             Padding(
@@ -125,8 +129,6 @@ class SalesPage extends StatelessWidget {
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
-                            const SizedBox(height: 3),
-                            productLotCostBadge(p),
                             const SizedBox(height: 6),
                             const Text(
                               'GIÁ BÁN',
@@ -271,7 +273,9 @@ Future<void> confirmProduct(
 }) async {
   final c = Get.find<ShopController>();
   final qty = TextEditingController(
-    text: suggested == null ? '1' : '${suggested / p.quantityStep}',
+    text: suggested == null
+        ? '1'
+        : NumberFormat('0.####', 'vi').format(suggested / p.quantityStep),
   );
   final note = TextEditingController(text: p.note);
   var unit = p.hasPackConversion ? 'thùng' : p.unit;
@@ -1648,31 +1652,43 @@ Future<void> returnSoldOrderDialog(BuildContext context, Json order) async {
           title: Text('Trả TOÀN BỘ đơn ${order['id']}?'),
           content: SizedBox(
             width: 450,
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Text('Hàng sẽ nhập lại ĐÚNG lô đã xuất. '
-                  'Không xóa chứng từ bán; lưu lịch sử trả hàng.'),
-              const SizedBox(height: 12),
-              Text('Số tiền đã thu: ${money(ShopData.collected(order))}'),
-              const SizedBox(height: 12),
-              field(reason, 'Lý do trả hàng (bắt buộc)'),
-              CheckboxListTile(
-                value: confirmedRefund,
-                onChanged: (v) => set(() => confirmedRefund = v ?? false),
-                title: const Text('Tôi đã hoàn tiền ngoài phần mềm'),
-                subtitle: const Text('Chỉ đánh dấu khi thật sự đã chi tiền.'),
-                controlAffinity: ListTileControlAffinity.leading,
-                contentPadding: EdgeInsets.zero,
-              ),
-            ]),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Hàng sẽ nhập lại ĐÚNG lô đã xuất. '
+                  'Không xóa chứng từ bán; lưu lịch sử trả hàng.',
+                ),
+                const SizedBox(height: 12),
+                Text('Số tiền đã thu: ${money(ShopData.collected(order))}'),
+                const SizedBox(height: 12),
+                field(reason, 'Lý do trả hàng (bắt buộc)'),
+                CheckboxListTile(
+                  value: confirmedRefund,
+                  onChanged: (v) => set(() => confirmedRefund = v ?? false),
+                  title: const Text('Tôi đã hoàn tiền ngoài phần mềm'),
+                  subtitle: const Text('Chỉ đánh dấu khi thật sự đã chi tiền.'),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ],
+            ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx),
-                child: const Text('Hủy')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Hủy'),
+            ),
             FilledButton(
               onPressed: () => attempt(() async {
-                await controller.change((d, a) => d.returnSoldOrder(
-                    order['id'] as String, reason.text, a,
-                    cashWasReturned: confirmedRefund));
+                await controller.change(
+                  (d, a) => d.returnSoldOrder(
+                    order['id'] as String,
+                    reason.text,
+                    a,
+                    cashWasReturned: confirmedRefund,
+                  ),
+                );
                 if (ctx.mounted) Navigator.pop(ctx);
               }),
               child: const Text('Xác nhận trả hàng'),
@@ -1701,8 +1717,12 @@ Future<void> printReceipt80(BuildContext context, Json order) async {
       builder: (ctx) => AlertDialog(
         title: const Text('Không in được phiếu 80 mm'),
         content: Text('$e\nĐơn đã lưu không thay đổi.'),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx),
-            child: const Text('Đóng'))],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Đóng'),
+          ),
+        ],
       ),
     );
   }
