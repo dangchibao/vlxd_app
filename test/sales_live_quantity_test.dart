@@ -152,7 +152,7 @@ void main() {
     },
   );
   testWidgets(
-    'Changing unit refreshes preview immediately and preserves typed quantity',
+    'Changing unit preserves the actual physical quantity and updates preview',
     (tester) async {
       final c = await openProduct(tester);
       await tester.enterText(quantity('thùng'), '2');
@@ -161,10 +161,10 @@ void main() {
       await tester.tap(find.text('Theo m²'));
       await tester.pump();
       expect(tester.widget<TextField>(quantity('m²')).controller, same(editor));
-      expect(editor.text, '2');
+      expect(editor.text, area(c.data.products.first.ratio * 2));
       expect(
         find.text(
-          'Thành tiền: ${money(lineMoney(20000, c.data.products.first.price))}',
+          'Thành tiền: ${money(lineMoney(c.data.products.first.ratio * 2, c.data.products.first.price))}',
         ),
         findsOneWidget,
       );

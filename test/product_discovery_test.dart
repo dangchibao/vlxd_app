@@ -100,24 +100,45 @@ void main() {
 
   test('keo dan gach is not mistakenly categorized as tile', () {
     expect(ProductDiscovery.suggestedCategory(makeProduct()), 'Keo và vữa');
-    expect(ProductDiscovery.suggestedCategory(makeProduct(
-      name: 'Gạch lát nền', size: '80x80', unit: 'm²',
-    )), 'Gạch ốp lát');
-    expect(ProductDiscovery.suggestedCategory(makeProduct(
-      name: 'Hàng mới ABC', size: '25kg', unit: 'bao',
-    )), 'Khác / chưa phân loại');
+    expect(
+      ProductDiscovery.suggestedCategory(
+        makeProduct(name: 'Gạch lát nền', size: '80x80', unit: 'm²'),
+      ),
+      'Gạch ốp lát',
+    );
+    expect(
+      ProductDiscovery.suggestedCategory(
+        makeProduct(name: 'Hàng mới ABC', size: '25kg', unit: 'bao'),
+      ),
+      'Khác / chưa phân loại',
+    );
   });
 
   test('domain blocks duplicate same item using 60x60 and 60×60', () {
     final data = ShopData.empty();
-    data.saveProduct(makeProduct(
-      id: 'A', code: 'A', name: 'Gạch lát nền',
-      size: '60×60', unit: 'm²',
-    ), actor);
-    expect(() => data.saveProduct(makeProduct(
-      id: 'B', code: 'B', name: 'gach lat nen',
-      size: '60x60', unit: 'm²',
-    ), actor), throwsStateError);
+    data.saveProduct(
+      makeProduct(
+        id: 'A',
+        code: 'A',
+        name: 'Gạch lát nền',
+        size: '60×60',
+        unit: 'm²',
+      ),
+      actor,
+    );
+    expect(
+      () => data.saveProduct(
+        makeProduct(
+          id: 'B',
+          code: 'B',
+          name: 'gach lat nen',
+          size: '60x60',
+          unit: 'm²',
+        ),
+        actor,
+      ),
+      throwsStateError,
+    );
     expect(data.products, hasLength(1));
   });
 

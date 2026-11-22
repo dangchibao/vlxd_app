@@ -1,5 +1,132 @@
 part of 'app.dart';
 
+// product-action-glyphs-exact-v4: 24x24 line icons copied as vector strokes
+// from the four visual shapes requested for the Hàng hóa action row.
+// Self-contained painter: no external font, package or image assets.
+enum _ProductActionKind { pencil, clipboardCheck, printer, ban }
+
+class _ProductActionGlyph extends StatelessWidget {
+  final _ProductActionKind kind;
+  final Color color;
+  const _ProductActionGlyph(this.kind, this.color);
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 24,
+    height: 24,
+    child: CustomPaint(painter: _ProductActionGlyphPainter(kind, color)),
+  );
+}
+
+class _ProductActionGlyphPainter extends CustomPainter {
+  final _ProductActionKind kind;
+  final Color color;
+  const _ProductActionGlyphPainter(this.kind, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 24, size.height / 24);
+    final pen = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.9
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..isAntiAlias = true;
+    switch (kind) {
+      case _ProductActionKind.pencil:
+        // Slim diagonal pencil, like the blue pencil in the reference.
+        final pencil = Path()
+          ..moveTo(4.2, 16.9)
+          ..lineTo(15.9, 5.2)
+          ..quadraticBezierTo(17.5, 3.6, 19.1, 5.2)
+          ..quadraticBezierTo(20.8, 6.9, 19.2, 8.5)
+          ..lineTo(7.5, 20.2)
+          ..lineTo(3.0, 21.3)
+          ..close();
+        canvas.drawPath(pencil, pen);
+        canvas.drawLine(const Offset(13.4, 7.7), const Offset(16.7, 11.0), pen);
+        canvas.drawLine(const Offset(4.2, 16.9), const Offset(7.5, 20.2), pen);
+        break;
+      case _ProductActionKind.clipboardCheck:
+        // Clipboard outline, top metal clip and a check inside.
+        final board = Path()
+          ..moveTo(9, 4.6)
+          ..lineTo(6.5, 4.6)
+          ..quadraticBezierTo(5, 4.6, 5, 6.3)
+          ..lineTo(5, 20)
+          ..quadraticBezierTo(5, 22, 7, 22)
+          ..lineTo(17, 22)
+          ..quadraticBezierTo(19, 22, 19, 20)
+          ..lineTo(19, 6.3)
+          ..quadraticBezierTo(19, 4.6, 17.5, 4.6)
+          ..lineTo(15, 4.6);
+        canvas.drawPath(board, pen);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            const Rect.fromLTWH(9, 2.5, 6, 4),
+            const Radius.circular(1.1),
+          ),
+          pen,
+        );
+        final tick = Path()
+          ..moveTo(8.4, 13.4)
+          ..lineTo(11.1, 16.1)
+          ..lineTo(15.7, 11.5);
+        canvas.drawPath(tick, pen);
+        break;
+      case _ProductActionKind.printer:
+        // Classic line-art printer, not the old QR-code symbol.
+        canvas.drawPath(
+          Path()
+            ..moveTo(6, 9)
+            ..lineTo(6, 3)
+            ..lineTo(18, 3)
+            ..lineTo(18, 9),
+          pen,
+        );
+        final housing = Path()
+          ..moveTo(6, 18)
+          ..lineTo(5, 18)
+          ..quadraticBezierTo(3, 18, 3, 16)
+          ..lineTo(3, 11)
+          ..quadraticBezierTo(3, 9, 5, 9)
+          ..lineTo(19, 9)
+          ..quadraticBezierTo(21, 9, 21, 11)
+          ..lineTo(21, 16)
+          ..quadraticBezierTo(21, 18, 19, 18)
+          ..lineTo(18, 18);
+        canvas.drawPath(housing, pen);
+        canvas.drawPath(
+          Path()
+            ..moveTo(6, 15)
+            ..lineTo(18, 15)
+            ..lineTo(18, 22)
+            ..lineTo(6, 22)
+            ..close(),
+          pen,
+        );
+        canvas.drawCircle(const Offset(17, 12), 0.65, Paint()..color = color);
+        break;
+      case _ProductActionKind.ban:
+        // Red circle with a diagonal line.
+        canvas.drawCircle(const Offset(12, 12), 9, pen);
+        canvas.drawLine(
+          const Offset(5.65, 5.65),
+          const Offset(18.35, 18.35),
+          pen,
+        );
+        break;
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _ProductActionGlyphPainter oldDelegate) =>
+      kind != oldDelegate.kind || color != oldDelegate.color;
+}
+
 class ProductPicture extends StatelessWidget {
   final Product product;
   const ProductPicture(this.product, {super.key});
@@ -117,6 +244,9 @@ class ProductsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = Get.find<ShopController>();
+    if (MediaQuery.sizeOf(context).width < 600) {
+      return VlxdMobileProductsView();
+    }
     return ListView(
       padding: vlxdPagePadding(context),
       children: [
@@ -129,7 +259,8 @@ class ProductsPage extends StatelessWidget {
               width: math.min(420, MediaQuery.sizeOf(context).width - 32),
               child: TextField(
                 decoration: const InputDecoration(
-                  hintText: 'Tìm mã, tên, quy cách, nhà cung cấp (có hoặc không dấu)',
+                  hintText:
+                      'Tìm mã, tên, quy cách, nhà cung cấp (có hoặc không dấu)',
                   prefixIcon: Icon(Icons.search),
                 ),
                 onChanged: (v) {
@@ -151,15 +282,19 @@ class ProductsPage extends StatelessWidget {
         Wrap(
           spacing: 8,
           runSpacing: 6,
-          children: c.catalogCategories.map((category) => ChoiceChip(
-            label: Text(category),
-            selected: c.catalogCategory == category,
-            onSelected: (_) {
-              c.catalogCategory = category;
-              c.group = 'Tất cả';
-              c.update();
-            },
-          )).toList(),
+          children: c.catalogCategories
+              .map(
+                (category) => ChoiceChip(
+                  label: Text(category),
+                  selected: c.catalogCategory == category,
+                  onSelected: (_) {
+                    c.catalogCategory = category;
+                    c.group = 'Tất cả';
+                    c.update();
+                  },
+                ),
+              )
+              .toList(),
         ),
         const SizedBox(height: 12),
         hint('Lọc quy cách / kích thước thực tế'),
@@ -167,28 +302,35 @@ class ProductsPage extends StatelessWidget {
         Wrap(
           spacing: 8,
           runSpacing: 6,
-          children: c.catalogSpecifications.map((specification) => ChoiceChip(
-            label: Text(specification),
-            selected: c.group == specification,
-            onSelected: (_) {
-              c.group = specification;
-              c.update();
-            },
-          )).toList(),
+          children: c.catalogSpecifications
+              .map(
+                (specification) => ChoiceChip(
+                  label: Text(specification),
+                  selected: c.group == specification,
+                  onSelected: (_) {
+                    c.group = specification;
+                    c.update();
+                  },
+                ),
+              )
+              .toList(),
         ),
         const SizedBox(height: 12),
         Wrap(
           spacing: 8,
           runSpacing: 8,
           children: ['Đang bán', 'Ngừng bán', 'Đã ẩn', 'Xóa nhầm', 'Tất cả']
-              .map((value) => ChoiceChip(
-                    label: Text(value),
-                    selected: c.catalogStatus == value,
-                    onSelected: (_) {
-                      c.catalogStatus = value;
-                      c.update();
-                    },
-                  )).toList(),
+              .map(
+                (value) => ChoiceChip(
+                  label: Text(value),
+                  selected: c.catalogStatus == value,
+                  onSelected: (_) {
+                    c.catalogStatus = value;
+                    c.update();
+                  },
+                ),
+              )
+              .toList(),
         ),
         const SizedBox(height: 12),
         if (c.catalogProducts.isEmpty)
@@ -198,7 +340,9 @@ class ProductsPage extends StatelessWidget {
             Icons.search_off,
           ),
         VlxdPagedList<Product>(
-          key: ValueKey('catalog-${c.query}-${c.catalogCategory}-${c.group}-${c.catalogStatus}'),
+          key: ValueKey(
+            'catalog-${c.query}-${c.catalogCategory}-${c.group}-${c.catalogStatus}',
+          ),
           items: c.catalogProducts,
           pageSize: 10,
           itemBuilder: (p) => Padding(
@@ -227,9 +371,12 @@ class ProductsPage extends StatelessWidget {
                                 ),
                               ),
                               hint('${p.code} • ${p.size} • ${p.supplier}'),
-                              if (p.deleted) hint('Đã xóa mềm • giữ mã SKU')
-                              else if (p.archivedFromLists) hint('Đã ẩn khỏi danh sách')
-                              else if (!p.active) hint('Ngừng kinh doanh'),
+                              if (p.deleted)
+                                hint('Đã xóa mềm • giữ mã SKU')
+                              else if (p.archivedFromLists)
+                                hint('Đã ẩn khỏi danh sách')
+                              else if (!p.active)
+                                hint('Ngừng kinh doanh'),
                               const SizedBox(height: 6),
                               Wrap(
                                 crossAxisAlignment: WrapCrossAlignment.center,
@@ -264,7 +411,7 @@ class ProductsPage extends StatelessWidget {
                               ),
                               const SizedBox(height: 3),
                               hint(
-                                'Còn ${area(p.available)} ${p.unit}${p.hasPackConversion ? ' • ${NumberFormat('0.##', 'vi').format(p.available / p.ratio)} thùng' : ''}',
+                                'Còn ${area(p.available)} ${p.unit}${p.hasPackConversion ? ' • ${NumberFormat('0.##', 'vi').format(p.available / p.ratio)} ${p.secondaryUnit} (${conversionHint(p)})' : ''}',
                               ),
                               if (p.note.isNotEmpty)
                                 Text(
@@ -301,21 +448,40 @@ class ProductsPage extends StatelessWidget {
     spacing: 2,
     children: [
       if (p.active && !p.deleted && !p.archivedFromLists) ...[
+        // product-action-row-exact-v4: FOUR icon-only buttons, never a wide label.
         IconButton(
-          tooltip: 'Chi tiết và sửa sản phẩm',
+          tooltip: 'Sửa sản phẩm',
           onPressed: () => editProduct(context, original: p),
-          icon: const Icon(Icons.edit_outlined),
+          icon: const _ProductActionGlyph(
+            _ProductActionKind.pencil,
+            Color(0xFF1976D2),
+          ),
         ),
+        if (Get.find<ShopController>().actor?.canAdmin == true &&
+            p.lots.isNotEmpty)
+          IconButton(
+            tooltip: 'Đính chính đơn vị nhập nhầm (Admin)',
+            onPressed: () => correctReceivedUnitDialog(context, p),
+            icon: const _ProductActionGlyph(
+              _ProductActionKind.clipboardCheck,
+              Color(0xFFD97706),
+            ),
+          ),
         IconButton(
-          tooltip: 'Mã vạch và in',
+          tooltip: 'Mã vạch & In',
           onPressed: () => showBarcode(context, p),
-          icon: const Icon(Icons.qr_code_2),
+          icon: const _ProductActionGlyph(
+            _ProductActionKind.printer,
+            Color(0xFF0D9488),
+          ),
         ),
         IconButton(
           tooltip: 'Ngừng kinh doanh (không xóa dữ liệu)',
-          color: Colors.red,
           onPressed: () => archiveProductDialog(context, p),
-          icon: const Icon(Icons.block_outlined),
+          icon: const _ProductActionGlyph(
+            _ProductActionKind.ban,
+            Color(0xFFDC2626),
+          ),
         ),
       ] else if (p.deleted) ...[
         if (Get.find<ShopController>().actor?.canAdmin == true)
@@ -343,7 +509,10 @@ class ProductsPage extends StatelessWidget {
 }
 
 Future<void> restoreCatalogProduct(
-    BuildContext context, Product p, String status) async {
+  BuildContext context,
+  Product p,
+  String status,
+) async {
   if (!await confirm(
     context,
     'Khôi phục ${p.name}?',
@@ -420,19 +589,30 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
           minimum: 0,
         )
       : Product.fromJson(jsonDecode(jsonEncode(original.toJson())));
+  final reverseInitially = p.hasPackConversion && p.ratio < productUnitScale;
   final code = TextEditingController(text: p.code),
       name = TextEditingController(text: p.name),
       size = TextEditingController(text: p.size.trim() == 'm³' ? '' : p.size),
       unit = TextEditingController(text: p.unit),
+      secondaryUnit = TextEditingController(
+        text: p.secondaryUnitLabel.isNotEmpty
+            ? p.secondaryUnitLabel
+            : (p.isBulk ? '' : 'thùng'),
+      ),
       supplier = TextEditingController(text: p.supplier),
       price = TextEditingController(text: '${p.price}'),
       ratio = TextEditingController(
-        text: p.ratio == 0 ? '' : '${p.ratio / 10000}',
+        text: p.ratio == 0
+            ? ''
+            : reverseInitially
+            ? '${productUnitScale / p.ratio}'
+            : '${p.ratio / productUnitScale}',
       ),
       minimum = TextEditingController(
         text: p.minimum == 0 ? '' : '${p.minimum / 10000}',
       ),
       note = TextEditingController(text: p.note);
+  var reverseConversion = reverseInitially;
   var saving = false;
   String? reuseId;
   String? reuseAction;
@@ -452,111 +632,198 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
                   code,
                   'Mã sản phẩm / mã vạch',
                   onChanged: (_) => set(() {}),
-                  helperText:
-                      'Mã gợi ý tự động; có thể sửa nếu cần. Không tạo mã khác cho một sản phẩm đã tồn tại.',
+                  helperText: 'Mã gợi ý tự động; có thể sửa nếu cần. Không tạo mã khác cho một sản phẩm đã tồn tại.',
                 ),
                 field(name, 'Tên sản phẩm', onChanged: (_) => set(() {})),
-                field(size, 'Kích thước / quy cách (tùy chọn)', onChanged: (_) => set(() {})),
-                field(unit, 'Đơn vị (tự nhập, ví dụ: m², m³, tấm, bao)', onChanged: (_) => set(() {})),
-                field(supplier, 'Nhà cung cấp (tùy chọn)', onChanged: (_) => set(() {})),
+                field(
+                  size,
+                  'Kích thước / quy cách (tùy chọn)',
+                  onChanged: (_) => set(() {}),
+                ),
+                field(
+                  unit,
+                  'Đơn vị (ví dụ: cái, viên, m², m³)',
+                  onChanged: (_) => set(() {}),
+                ),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    TextButton(
+                      onPressed: saving
+                          ? null
+                          : () => set(() => unit.text = 'm²'),
+                      child: const Text('Chọn m²'),
+                    ),
+                    TextButton(
+                      onPressed: saving
+                          ? null
+                          : () => set(() => unit.text = 'm³'),
+                      child: const Text('Chọn m³'),
+                    ),
+                    const Text('Có thể gõ m2 hoặc m3 trên bàn phím.'),
+                  ],
+                ),
+                field(
+                  supplier,
+                  'Nhà cung cấp (tùy chọn)',
+                  onChanged: (_) => set(() {}),
+                ),
                 if (original == null) ...[
-                  Builder(builder: (ctx) {
-                    final suggestions = ProductDiscovery.suggest(
-                      products: c.data.products,
-                      name: name.text,
-                      code: code.text,
-                      specification: size.text,
-                      unit: unit.text,
-                      supplier: supplier.text,
-                      excludeId: p.id,
-                    );
-                    if (suggestions.isEmpty) return const SizedBox.shrink();
-                    return Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      margin: const EdgeInsets.only(bottom: 14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFF7E5),
-                        borderRadius: BorderRadius.circular(9),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Có thể sản phẩm đã tồn tại:',
-                              style: TextStyle(fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 5),
-                          const Text('Hãy đối chiếu tên, quy cách, đơn vị và nhà cung cấp. '
-                              'Nhà cung cấp khác chưa chắc là hàng khác hãng.'),
-                          for (final suggestion in suggestions) ...[
-                            const Divider(height: 14),
-                            Text(suggestion.product.name,
-                                style: const TextStyle(fontWeight: FontWeight.w600)),
-                            Text('Mã: ${suggestion.product.code} • '
-                                '${suggestion.product.size} • ${suggestion.product.unit}'),
-                            Text('Nhà cung cấp: ${suggestion.product.supplier.isEmpty ? 'Chưa ghi' : suggestion.product.supplier} '
-                                '• Tồn: ${area(suggestion.product.stock)} ${suggestion.product.unit}'),
-                            Text(suggestion.explanation,
-                                style: const TextStyle(color: Color(0xFF76500B))),
-                            if (suggestion.product.deleted ||
-                                suggestion.product.archivedFromLists ||
-                                !suggestion.product.active)
-                              const Text('Sản phẩm đã ngừng/ẩn/xóa mềm. '
-                                  'Hãy khôi phục trước khi nhập hàng.'),
-                            Wrap(
-                              spacing: 8,
-                              children: [
-                                TextButton.icon(
-                                  onPressed: saving ? null : () {
-                                    reuseId = suggestion.product.id;
-                                    reuseAction = 'view';
-                                    Navigator.pop(ctx);
-                                  },
-                                  icon: const Icon(Icons.open_in_new_outlined),
-                                  label: const Text('Mở sản phẩm cũ'),
-                                ),
-                                if (!suggestion.product.active ||
-                                    suggestion.product.deleted ||
-                                    suggestion.product.archivedFromLists)
-                                  TextButton.icon(
-                                    onPressed: saving ? null : () {
-                                      reuseId = suggestion.product.id;
-                                      reuseAction = 'restore';
-                                      Navigator.pop(ctx);
-                                    },
-                                    icon: const Icon(Icons.restore_outlined),
-                                    label: const Text('Khôi phục mã cũ'),
-                                  ),
-                                if (suggestion.product.active &&
-                                    !suggestion.product.deleted &&
-                                    !suggestion.product.archivedFromLists)
-                                  TextButton.icon(
-                                    onPressed: saving ? null : () {
-                                      reuseId = suggestion.product.id;
-                                      reuseAction = 'receive';
-                                      Navigator.pop(ctx);
-                                    },
-                                    icon: const Icon(Icons.add_box_outlined),
-                                    label: const Text('Dùng lại & nhập kho'),
-                                  ),
-                              ],
+                  Builder(
+                    builder: (ctx) {
+                      final suggestions = ProductDiscovery.suggest(
+                        products: c.data.products,
+                        name: name.text,
+                        code: code.text,
+                        specification: size.text,
+                        unit: unit.text,
+                        supplier: supplier.text,
+                        excludeId: p.id,
+                      );
+                      if (suggestions.isEmpty) return const SizedBox.shrink();
+                      return Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.only(bottom: 14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF7E5),
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Có thể sản phẩm đã tồn tại:',
+                              style: TextStyle(fontWeight: FontWeight.bold),
                             ),
+                            const SizedBox(height: 5),
+                            const Text(
+                              'Hãy đối chiếu tên, quy cách, đơn vị và nhà cung cấp. '
+                              'Nhà cung cấp khác chưa chắc là hàng khác hãng.',
+                            ),
+                            for (final suggestion in suggestions) ...[
+                              const Divider(height: 14),
+                              Text(
+                                suggestion.product.name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
+                                'Mã: ${suggestion.product.code} • '
+                                '${suggestion.product.size} • ${suggestion.product.unit}',
+                              ),
+                              Text(
+                                'Nhà cung cấp: ${suggestion.product.supplier.isEmpty ? 'Chưa ghi' : suggestion.product.supplier} '
+                                '• Tồn: ${area(suggestion.product.stock)} ${suggestion.product.unit}',
+                              ),
+                              Text(
+                                suggestion.explanation,
+                                style: const TextStyle(
+                                  color: Color(0xFF76500B),
+                                ),
+                              ),
+                              if (suggestion.product.deleted ||
+                                  suggestion.product.archivedFromLists ||
+                                  !suggestion.product.active)
+                                const Text(
+                                  'Sản phẩm đã ngừng/ẩn/xóa mềm. '
+                                  'Hãy khôi phục trước khi nhập hàng.',
+                                ),
+                              Wrap(
+                                spacing: 8,
+                                children: [
+                                  TextButton.icon(
+                                    onPressed: saving
+                                        ? null
+                                        : () {
+                                            reuseId = suggestion.product.id;
+                                            reuseAction = 'view';
+                                            Navigator.pop(ctx);
+                                          },
+                                    icon: const Icon(
+                                      Icons.open_in_new_outlined,
+                                    ),
+                                    label: const Text('Mở sản phẩm cũ'),
+                                  ),
+                                  if (!suggestion.product.active ||
+                                      suggestion.product.deleted ||
+                                      suggestion.product.archivedFromLists)
+                                    TextButton.icon(
+                                      onPressed: saving
+                                          ? null
+                                          : () {
+                                              reuseId = suggestion.product.id;
+                                              reuseAction = 'restore';
+                                              Navigator.pop(ctx);
+                                            },
+                                      icon: const Icon(Icons.restore_outlined),
+                                      label: const Text('Khôi phục mã cũ'),
+                                    ),
+                                  if (suggestion.product.active &&
+                                      !suggestion.product.deleted &&
+                                      !suggestion.product.archivedFromLists)
+                                    TextButton.icon(
+                                      onPressed: saving
+                                          ? null
+                                          : () {
+                                              reuseId = suggestion.product.id;
+                                              reuseAction = 'receive';
+                                              Navigator.pop(ctx);
+                                            },
+                                      icon: const Icon(Icons.add_box_outlined),
+                                      label: const Text('Dùng lại & nhập kho'),
+                                    ),
+                                ],
+                              ),
+                            ],
                           ],
-                        ],
-                      ),
-                    );
-                  }),
+                        ),
+                      );
+                    },
+                  ),
                 ],
-                field(price, 'Giá bán đ/đơn vị', moneyInput: true),
+                field(
+                  price,
+                  'Giá bán đ/${canonicalProductUnit(unit.text)}',
+                  moneyInput: true,
+                ),
+                field(
+                  secondaryUnit,
+                  'Đơn vị phụ (nếu có)',
+                  onChanged: (_) => set(() {}),
+                ),
                 field(
                   ratio,
-                  'Số đơn vị trong 1 thùng (không rõ thì để trống)',
+                  reverseConversion
+                      ? '1 ${canonicalProductUnit(unit.text).isEmpty ? 'đơn vị chính' : canonicalProductUnit(unit.text)} = bao nhiêu ${canonicalProductUnit(secondaryUnit.text).isEmpty ? 'đơn vị phụ' : canonicalProductUnit(secondaryUnit.text)}?'
+                      : '1 ${canonicalProductUnit(secondaryUnit.text).isEmpty ? 'đơn vị phụ' : canonicalProductUnit(secondaryUnit.text)} = bao nhiêu ${canonicalProductUnit(unit.text).isEmpty ? 'đơn vị chính' : canonicalProductUnit(unit.text)}?',
                   number: true,
                 ),
-                field(
-                  minimum,
-                  'Cảnh báo khi tồn kho còn (tùy chọn)',
-                  number: true,
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Đổi chiều quy đổi'),
+                  value: reverseConversion,
+                  onChanged: (v) {
+                    final current = decimal(ratio.text);
+                    if (current.isFinite && current > 0) {
+                      ratio.text = (1 / current).toString();
+                    }
+                    set(() => reverseConversion = v ?? false);
+                  },
                 ),
+                hint(
+                  'VD: 1 thùng = 5 cái. '
+                  'Chiều ngược: 1 bao = 25 kg. '
+                  'Một đơn vị thì để trống hệ số. '
+                  'Không tự quy đổi các chứng từ cũ.',
+                ),
+                SizedBox(
+                  key: const ValueKey('vlxd-low-stock-space-v1'),
+                  height: MediaQuery.sizeOf(ctx).width < 600 ? 12 : 16,
+                ),
+                field(minimum, 'Báo tồn thấp (tùy chọn)', number: true),
                 TextField(
                   controller: note,
                   minLines: 2,
@@ -564,22 +831,21 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
                   maxLength: 1000,
                   decoration: const InputDecoration(
                     labelText: 'Lưu ý (tùy chọn)',
-                    hintText: 'Ví dụ: 5 tấm đá, người bán tự tính tổng 3,6 m². Kích thước chưa rõ có thể bổ sung sau.',
-                    helperText: 'Thông tin để đối chiếu; app không tự tính từ nội dung lưu ý.',
+                    hintText: 'VD: 5 tấm = 3,6 m²',
+                    helperText: 'Ghi chú không tự tính.',
                     helperMaxLines: 3,
                     floatingLabelBehavior: FloatingLabelBehavior.always,
                     alignLabelWithHint: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 18,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
-                hint(
-                  'Số lượng mua do người bán tự tính và nhập theo đơn vị đã điền. Thay tên đơn vị không tự quy đổi tồn kho.',
-                ),
+                hint('Nhập số lượng đúng đơn vị. Đổi đơn vị không tự đổi tồn.'),
                 const SizedBox(height: 12),
-                hint(
-                  'Ảnh đầu là đại diện • Tối đa 11 ảnh • Bấm ảnh để đổi hoặc xóa',
-                ),
+                hint('Ảnh đầu là ảnh chính • Tối đa 11 ảnh • Chạm để sửa'),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 8,
@@ -704,13 +970,16 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
             onPressed: saving
                 ? null
                 : () => attempt(() async {
-                    final r = ratio.text.trim().isEmpty
+                    final enteredRatio = ratio.text.trim().isEmpty
                             ? 0.0
                             : decimal(ratio.text),
                         m = minimum.text.trim().isEmpty
                             ? 0.0
                             : decimal(minimum.text);
-                    if (!r.isFinite || !m.isFinite) {
+                    final r = reverseConversion && enteredRatio > 0
+                        ? 1 / enteredRatio
+                        : enteredRatio;
+                    if (!r.isFinite || !m.isFinite || enteredRatio < 0) {
                       throw ArgumentError(
                         'Quy đổi hoặc ngưỡng tồn không hợp lệ.',
                       );
@@ -722,7 +991,18 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
                         unit.text.trim().length > 40) {
                       throw ArgumentError('Nhập đơn vị từ 1 đến 40 ký tự.');
                     }
-                    p.unitLabel = unit.text.trim();
+                    p.unitLabel = canonicalProductUnit(unit.text);
+                    final secondary = canonicalProductUnit(secondaryUnit.text);
+                    if (r > 0 &&
+                        (secondary.isEmpty ||
+                            secondary == p.unit ||
+                            secondary.length > 40 ||
+                            areaUnits(r) <= 0)) {
+                      throw ArgumentError(
+                        'Nhập đơn vị phụ khác đơn vị chính và hệ số lớn hơn 0.',
+                      );
+                    }
+                    p.secondaryUnitLabel = r > 0 ? secondary : '';
                     p.supplier = supplier.text.trim();
                     p.note = note.text.trim();
                     p.price = whole(price.text);
@@ -749,6 +1029,7 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
     name,
     size,
     unit,
+    secondaryUnit,
     supplier,
     price,
     ratio,
@@ -759,18 +1040,24 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
   }
   if (reuseId != null && context.mounted) {
     // Use the latest product snapshot; never create a new SKU on reuse.
-    final selected = c.data.products.where((item) => item.id == reuseId)
+    final selected = c.data.products
+        .where((item) => item.id == reuseId)
         .firstOrNull;
     if (selected == null) return;
     if (reuseAction == 'restore') {
-      final status = selected.deleted ? 'deleted' :
-          selected.archivedFromLists ? 'archived' : 'inactive';
+      final status = selected.deleted
+          ? 'deleted'
+          : selected.archivedFromLists
+          ? 'archived'
+          : 'inactive';
       await restoreCatalogProduct(context, selected, status);
     } else if (reuseAction == 'receive') {
       if (!selected.active || selected.deleted || selected.archivedFromLists) {
         await attempt(() async {
-          throw StateError('Sản phẩm cũ đã ngừng bán hoặc bị ẩn. '
-              'Hãy khôi phục trước khi nhập kho.');
+          throw StateError(
+            'Sản phẩm cũ đã ngừng bán hoặc bị ẩn. '
+            'Hãy khôi phục trước khi nhập kho.',
+          );
         });
       } else {
         await receiveStock(context, selected);
@@ -781,22 +1068,290 @@ Future<void> editProduct(BuildContext context, {Product? original}) async {
   }
 }
 
+// UI-only shorthand. The full UUID stays unchanged in Firestore/SQLite.
+String _shortCorrectionLotId(Object? id) {
+  final full = id?.toString() ?? '';
+  return full.length <= 8 ? full : full.substring(full.length - 8);
+}
+
+// vlxd-responsive-real-v3: labels are separate from input boxes so no text overlaps.
+Widget _unitCorrectionInput(
+  TextEditingController controller,
+  String label, {
+  bool decimalNumber = false,
+  bool moneyInput = false,
+  String? hintText,
+}) => Padding(
+  padding: const EdgeInsets.only(bottom: 10),
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        label,
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+      ),
+      const SizedBox(height: 6),
+      TextField(
+        controller: controller,
+        keyboardType: moneyInput
+            ? TextInputType.number
+            : decimalNumber
+            ? const TextInputType.numberWithOptions(decimal: true)
+            : TextInputType.text,
+        inputFormatters: moneyInput ? [const MoneyInputFormatter()] : null,
+        decoration: InputDecoration(
+          hintText: hintText,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 12,
+          ),
+        ),
+      ),
+    ],
+  ),
+);
+
+/// Standalone, intentional correction workflow. Normal product editing
+/// continues to lock unit changes once stock history exists.
+Future<void> correctReceivedUnitDialog(
+  BuildContext context,
+  Product original,
+) async {
+  final c = Get.find<ShopController>();
+  if (c.actor?.canAdmin != true) return;
+  final openingJson = jsonEncode(original.toJson());
+  final newUnit = TextEditingController(text: ''),
+      secondary = TextEditingController(text: original.unit),
+      ratio = TextEditingController(),
+      newPrice = TextEditingController(),
+      reason = TextEditingController();
+  final lotQuantities = <String, TextEditingController>{
+    for (final lot in original.lots)
+      (lot['id'] as String): TextEditingController(),
+  };
+  var confirmed = false;
+  var saving = false;
+  try {
+    await safeDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, set) => AlertDialog(
+          title: const Text('Đính chính đơn vị nhập nhầm'),
+          content: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 640,
+              maxHeight:
+                  (MediaQuery.sizeOf(ctx).height -
+                      MediaQuery.viewInsetsOf(ctx).bottom) *
+                  .68,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Sản phẩm: ${original.code} • ${original.name}'),
+                  const SizedBox(height: 8),
+                  Text('Đơn vị đã nhập sai: ${original.unit}'),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'CHỈ DÙNG nếu sản phẩm mới có phiếu nhập, chưa bán/xuất, '
+                    'chưa giữ hàng. Các thiết bị khác phải đồng bộ xong.',
+                    style: TextStyle(
+                      color: Colors.deepOrange,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _unitCorrectionInput(newUnit, 'Đơn vị chính đúng (ví dụ m²)'),
+                  _unitCorrectionInput(
+                    secondary,
+                    'Đơn vị phụ (ví dụ thùng; để trống nếu không dùng)',
+                  ),
+                  _unitCorrectionInput(
+                    ratio,
+                    '1 đơn vị phụ = bao nhiêu đơn vị chính?',
+                    decimalNumber: true,
+                  ),
+                  _unitCorrectionInput(
+                    newPrice,
+                    'Giá bán mới / đơn vị chính (đ)',
+                    moneyInput: true,
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Nhập số lượng THỰC TẾ của từng lô theo đơn vị chính mới:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  for (final lot in original.lots) ...[
+                    const SizedBox(height: 14),
+                    Text(
+                      _inventoryLotLabel(original, lot),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Đã ghi ${area(lot['area'])} ${original.unit} • '
+                      'Giá vốn cũ ${money(lot['cost'])}/${original.unit}',
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'ID ngắn: ${_shortCorrectionLotId(lot['id'])}',
+                            softWrap: true,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.blueGrey,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Sao chép mã lô đầy đủ: ${lot['id']}',
+                          icon: const Icon(Icons.copy_outlined, size: 18),
+                          onPressed: () => Clipboard.setData(
+                            ClipboardData(text: lot['id'].toString()),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    _unitCorrectionInput(
+                      lotQuantities[lot['id'] as String]!,
+                      'Số lượng thực tế theo đơn vị chính mới',
+                      decimalNumber: true,
+                      hintText: 'Nhập 0 nếu lô hiện đã hết hàng',
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Giá vốn mỗi lô được quy đổi để giữ tổng tiền vốn cũ '
+                    '(có thể làm tròn đến đồng). Ngưỡng cảnh báo tồn sẽ đặt lại 0.',
+                  ),
+                  _unitCorrectionInput(
+                    reason,
+                    'Lý do sửa sai (ít nhất 3 từ)',
+                    hintText: 'Ví dụ: Nhập nhầm đơn vị',
+                  ),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    title: const Text(
+                      'Tôi đã đối chiếu phiếu nhập, tồn thực tế và các thiết bị khác; '
+                      'sản phẩm chưa từng bán/xuất/giữ hàng.',
+                    ),
+                    value: confirmed,
+                    onChanged: saving
+                        ? null
+                        : (v) => set(() => confirmed = v ?? false),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(ctx),
+              child: const Text('Hủy'),
+            ),
+            FilledButton(
+              onPressed: saving || !confirmed
+                  ? null
+                  : () => attempt(() async {
+                      final canonical = canonicalProductUnit(newUnit.text);
+                      final second = canonicalProductUnit(secondary.text);
+                      final rawFactor = ratio.text.trim().isEmpty
+                          ? 0.0
+                          : decimal(ratio.text);
+                      if (canonical.isEmpty ||
+                          !rawFactor.isFinite ||
+                          rawFactor < 0 ||
+                          (second.isNotEmpty && rawFactor <= 0) ||
+                          (second.isEmpty && rawFactor > 0)) {
+                        throw ArgumentError(
+                          'Nhập đúng đơn vị và hệ số quy đổi.',
+                        );
+                      }
+                      final adjusted = <String, int>{};
+                      for (final lot in original.lots) {
+                        final id = lot['id'] as String;
+                        final amount = decimal(lotQuantities[id]!.text);
+                        if (!amount.isFinite || amount < 0) {
+                          throw ArgumentError(
+                            'Số lượng lô phải từ 0 trở lên: $id.',
+                          );
+                        }
+                        adjusted[id] = areaUnits(amount);
+                      }
+                      final price = whole(newPrice.text);
+                      if (price <= 0) {
+                        throw ArgumentError(
+                          'Cần xác nhận giá bán theo đơn vị mới.',
+                        );
+                      }
+                      set(() => saving = true);
+                      try {
+                        await c.verifyUnitCorrectionReady();
+                        await c.change(
+                          (d, a) => d.correctReceivedProductUnit(
+                            productId: original.id,
+                            expectedProductJson: openingJson,
+                            newUnit: canonical,
+                            secondaryUnit: second,
+                            newRatio: areaUnits(rawFactor),
+                            newSalePrice: price,
+                            actualLotQuantities: adjusted,
+                            reason: reason.text,
+                            actor: a,
+                          ),
+                        );
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      } finally {
+                        if (ctx.mounted) set(() => saving = false);
+                      }
+                    }),
+              child: const Text('Xác nhận đính chính'),
+            ),
+          ],
+        ),
+      ),
+    );
+  } finally {
+    for (final controller in [
+      newUnit,
+      secondary,
+      ratio,
+      newPrice,
+      reason,
+      ...lotQuantities.values,
+    ]) {
+      controller.dispose();
+    }
+  }
+}
+
 Future<String?> pickImage() async {
   final live = Get.find<ShopController>().isLive;
   final image = await ImagePicker().pickImage(
     source: ImageSource.gallery,
-    maxWidth: live ? 480 : 1200,
-    maxHeight: live ? 480 : 1200,
-    imageQuality: live ? 45 : 75,
+    // Browser/iOS pickers may ignore resize options. The second-stage
+    // adaptive compressor below is the actual 40 KB safeguard.
+    maxWidth: live ? 640 : 1200,
+    maxHeight: live ? 640 : 1200,
+    imageQuality: live ? 80 : 75,
   );
   if (image == null) return null;
   final bytes = await image.readAsBytes();
-  if (bytes.length > (live ? 40000 : 600000)) {
-    throw StateError(
-      live
-          ? 'Ảnh cần dưới 40 KB sau khi nén để đồng bộ Firestore miễn phí. Chọn ảnh nhỏ hơn; ảnh gốc lớn cần cấu hình Cloudinary.'
-          : 'Ảnh quá lớn cho bản thử. Vui lòng chọn ảnh dưới 600 KB.',
-    );
+  if (live) {
+    // No Cloudinary, no change to Firestore schema or existing photos.
+    return encodeProductPhotoForFirestore(bytes);
+  }
+  if (bytes.length > 600000) {
+    throw StateError('Ảnh quá lớn cho bản thử. Vui lòng chọn ảnh dưới 600 KB.');
   }
   return base64Encode(bytes);
 }
@@ -804,7 +1359,7 @@ Future<String?> pickImage() async {
 Future<void> showBarcode(BuildContext context, Product p) => safeDialog<void>(
   context: context,
   builder: (ctx) => AlertDialog(
-    title: const Text('Mã vạch sản phẩm'),
+    title: const Text('Mã vạch & In tem'),
     content: SizedBox(
       width: 320,
       child: Column(
@@ -833,9 +1388,13 @@ Future<void> showBarcode(BuildContext context, Product p) => safeDialog<void>(
         child: const Text('Đóng'),
       ),
       FilledButton.icon(
+        style: FilledButton.styleFrom(
+          backgroundColor: const Color(0xFF0F766E),
+          foregroundColor: Colors.white,
+        ),
         onPressed: () => attempt(() => PrintService.barcode(p)),
         icon: const Icon(Icons.print_outlined),
-        label: const Text('In mã vạch'),
+        label: const Text('In tem mã vạch'),
       ),
     ],
   ),

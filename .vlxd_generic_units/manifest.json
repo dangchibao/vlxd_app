@@ -1,0 +1,61 @@
+{
+  "title": "VLXD Generic Secondary Unit Upgrade Beta",
+  "based_on": "2026-11-20 VLXD Source Review + ReviewUnits patch",
+  "files": [
+    {
+      "path": "lib/ui/app.dart",
+      "before_sha256": "a439897a73e286a137be1113a4c7a211cfe89c8b7bfe09458b778b758182d3a1",
+      "new_sha256": "4ebeb5da72b1d97f4eeb898d6d29fed1fdacad28dee077947719c1e82c3ad9ed"
+    },
+    {
+      "path": "lib/domain/shop.dart",
+      "before_sha256": "7ce1a35a462e95689db219dab7a61d96e65d5f4dc080c167d081fc80798137bf",
+      "new_sha256": "099a00601f740aaa128c169023158a0aff953560095d49a124ce191c2b9e8892"
+    },
+    {
+      "path": "lib/controllers/shop_controller.dart",
+      "before_sha256": "2bf020827d6aa12df00764a8a102ebafc5010b857a87c44defd1d1a0bc1ef223",
+      "new_sha256": "c9392a19a68969ce811792589d12e5976a9fc8692911751701698c1d84b1a7de"
+    },
+    {
+      "path": "lib/ui/catalog.dart",
+      "before_sha256": "d931aa2697ae11ce1c04c8b3491f6e85c6e1e41e9d13f36f7c5408c04ee027ea",
+      "new_sha256": "de0420ddf004cb7264b05012fc4a7d7140464e19c2323d82b47ec5c887c3a3ca"
+    },
+    {
+      "path": "lib/ui/sales.dart",
+      "before_sha256": "765a43f62c9e449690801b4998db07af71fe84caa21494bc5920e3947f185a86",
+      "new_sha256": "f03f2dfa7e6567dda74f73126cb5bbb700341278132bddc2d794ba7d486b08f3"
+    },
+    {
+      "path": "lib/ui/operations.dart",
+      "before_sha256": "ed102907bbf2c176fe82a0b04f83cc0eab705811519c18bf0a40fcc8063247ca",
+      "new_sha256": "00b1b5033feea7636bb4ef5d8db95ec98ab3659c853ec4fdc6f8cf604d699748"
+    },
+    {
+      "path": "lib/ui/print_service.dart",
+      "before_sha256": "b5374d27b89531e529017f8d58acc54d0f433be0579b1b4770bd436017d67ebf",
+      "new_sha256": "16ded5e929ca41fff9441d0c656bf4077c9001e800884d8bec7132119ceff0fc"
+    },
+    {
+      "path": "lib/ui/audit_text.dart",
+      "before_sha256": "0e48d9ed3a7b4a09ed641484399b237b8b1eaa3fe537157ea625249959f471e6",
+      "new_sha256": "b879f414656e2b882ad460e09cee4ca0a229ccbb959adc89a7436fbb8f9e6ee7"
+    },
+    {
+      "path": "lib/data/sync/offline_book_operation.dart",
+      "before_sha256": "c102b63cc976131e3f3adb0e5a84328f12d2f1b00ad9a8be58a8e73cb6d89288",
+      "new_sha256": "6fd9fa865ef0cde9566a1059cd0e13ed2360498ae1a3c7002651d5f2b281bfee"
+    },
+    {
+      "path": "firestore.rules",
+      "before_sha256": "add720d76ec8b0af1ddfc522b623b28fc16fb087281d4f2d06b616e62fe14caa",
+      "new_sha256": "4f3c6d1e62abd39fe836b64fecb9236024151ff6961ed86e939b1fbcd7b5abd9"
+    },
+    {
+      "path": "test/secondary_unit_upgrade_test.dart",
+      "before_sha256": null,
+      "new_sha256": "dc1cb6103358f5a2ed2194510433da45814cea3f9d4ad30cdb5c240cb4937b32"
+    }
+  ]
+}

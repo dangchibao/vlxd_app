@@ -1,0 +1,790 @@
+--- beta/lib/ui/app.dart
++++ upgrade/lib/ui/app.dart
+@@ -63,6 +63,8 @@
+ const ink = Color(0xFF142D50);
+ String money(num v) => '${NumberFormat.decimalPattern('vi').format(v)} đ';
+ String area(num v) => NumberFormat('0.##', 'vi').format(v / 10000);
++String conversionHint(Product p) =>
++    '1 ${p.conversionFromUnit} = ${NumberFormat('0.####', 'vi').format(p.conversionDisplayFactor)} ${p.conversionToUnit}';
+ String day(String v) =>
+     DateFormat('dd/MM/yyyy HH:mm').format(DateTime.parse(v).toLocal());
+ double decimal(String v) =>
+
+--- beta/lib/domain/shop.dart
++++ upgrade/lib/domain/shop.dart
+@@ -37,6 +37,8 @@
+ class Product {
+   String id, code, name, size, supplier, note;
+   String unitLabel;
++  // Empty on legacy records: ratio was historically '1 thùng = N base units'.
++  String secondaryUnitLabel;
+   int price, ratio, minimum;
+   bool active;
+   bool deleted;
+@@ -58,6 +60,7 @@
+     this.archivedFromLists = false,
+     this.note = '',
+     this.unitLabel = '',
++    this.secondaryUnitLabel = '',
+     List<String>? images,
+     List<Json>? lots,
+   }) : images = images ?? [],
+@@ -69,9 +72,27 @@
+   String get unit => canonicalProductUnit(
+       unitLabel.trim().isNotEmpty ? unitLabel : (isBulk ? 'm³' : 'm²'),
+     );
+-  bool get hasPackConversion => !isBulk && unit != 'thùng' && ratio > 0;
+-  int get quantityStep => hasPackConversion ? ratio : 10000;
+-  String get packUnit => hasPackConversion ? 'thùng' : unit;
++  // Generic secondary unit. Legacy non-bulk products with ratio retain 'thùng'.
++  // Legacy m³ products did not activate carton conversion automatically.
++  String get secondaryUnit => canonicalProductUnit(
++        secondaryUnitLabel.trim().isNotEmpty
++            ? secondaryUnitLabel
++            : (isBulk ? '' : 'thùng'),
++      );
++  bool get hasPackConversion =>
++      ratio > 0 && secondaryUnit.isNotEmpty && secondaryUnit != unit;
++  bool isSecondaryUnit(String selected) =>
++      hasPackConversion && selected == secondaryUnit;
++  int factorForUnit(String selected) =>
++      isSecondaryUnit(selected) ? ratio : productUnitScale;
++  int get quantityStep => hasPackConversion ? ratio : productUnitScale;
++  String get packUnit => hasPackConversion ? secondaryUnit : unit;
++  bool get showReverseConversion => hasPackConversion && ratio < productUnitScale;
++  String get conversionFromUnit => showReverseConversion ? unit : secondaryUnit;
++  String get conversionToUnit => showReverseConversion ? secondaryUnit : unit;
++  double get conversionDisplayFactor => showReverseConversion
++      ? productUnitScale / ratio
++      : ratio / productUnitScale;
+   int get stock => lots.fold(0, (v, l) => v + (l['area'] as int));
+   int get reserved => lots.fold(0, (v, l) => v + (l['reserved'] as int? ?? 0));
+   int get available => stock - reserved;
+@@ -86,6 +107,8 @@
+     'name': name,
+     'size': size,
+     if (unitLabel.trim().isNotEmpty) 'unit': unitLabel.trim(),
++    if (secondaryUnitLabel.trim().isNotEmpty && ratio > 0)
++      'secondaryUnit': canonicalProductUnit(secondaryUnitLabel),
+     'supplier': supplier,
+     if (note.isNotEmpty) 'note': note,
+     'price': price,
+@@ -103,6 +126,7 @@
+     name: j['name'],
+     size: j['size'],
+     unitLabel: j['unit'] as String? ?? '',
++    secondaryUnitLabel: j['secondaryUnit'] as String? ?? '',
+     supplier: j['supplier'],
+     note: j['note'] as String? ?? '',
+     price: j['price'],
+@@ -248,7 +272,9 @@
+ 
+   bool canDeleteUnusedProduct(String id) {
+     final p = product(id);
+-    if (p.deleted || p.lots.isNotEmpty || p.stock != 0 || p.reserved != 0) return false;
++    if (p.deleted || p.lots.isNotEmpty || p.stock != 0 || p.reserved != 0) {
++      return false;
++    }
+     // Be conservative: a product with any stock movement/order/delivery/reference
+     // is not eligible for hard deletion, even if its stock is currently zero.
+     bool references(List<Json> rows) => rows.any((row) =>
+@@ -374,6 +400,19 @@
+         'Dùng quy trình chuyển đổi có chứng từ, không tự đổi số tồn.',
+       );
+     }
++    // A configured conversion used in historical documents must not be silently
++    // rewritten. An unused product may change it. Adding a NEW conversion to
++    // a previously base-only product does not reinterpret historic quantities.
++    if (expected != null && expected.hasPackConversion &&
++        hasProductHistory(current!) &&
++        (expected.ratio != p.ratio ||
++            expected.secondaryUnit != p.secondaryUnit)) {
++      throw StateError(
++        'Sản phẩm đã phát sinh chứng từ với đơn vị quy đổi cũ. '
++        'Không đổi hệ số hoặc tên đơn vị phụ trực tiếp; '
++        'hãy dùng quy trình chuyển đổi có chứng từ.',
++      );
++    }
+     if (expected != null) {
+       // A concurrent edit of name, price, images, unit or status must NEVER
+       // be silently overwritten by an editor opened on a stale device.
+@@ -416,6 +455,11 @@
+         p.price > 1000000000 ||
+         p.ratio < 0 ||
+         p.ratio > 100000000 ||
++        (p.ratio > 0 &&
++            !(p.isBulk && p.secondaryUnitLabel.trim().isEmpty) &&
++            (p.secondaryUnit.isEmpty ||
++                p.secondaryUnit == p.unit ||
++                p.secondaryUnit.length > 40)) ||
+         p.minimum < 0 ||
+         p.note.length > 1000 ||
+         p.images.length > 11) {
+@@ -594,7 +638,7 @@
+       }
+       final saleProduct = product(line.productId);
+       if (line.saleUnit.isNotEmpty && line.saleUnit != saleProduct.unit &&
+-          !(saleProduct.hasPackConversion && line.saleUnit == 'thùng')) {
++          !saleProduct.isSecondaryUnit(line.saleUnit)) {
+         throw StateError('Đơn vị bán không còn phù hợp với ${saleProduct.name}.');
+       }
+       quantities.update(
+
+--- beta/lib/controllers/shop_controller.dart
++++ upgrade/lib/controllers/shop_controller.dart
+@@ -514,7 +514,7 @@
+     }
+ 
+     final chosenUnit = saleUnit?.isNotEmpty == true ? saleUnit! : p.packUnit;
+-    if (chosenUnit != p.unit && !(p.hasPackConversion && chosenUnit == 'thùng')) {
++    if (chosenUnit != p.unit && !p.isSecondaryUnit(chosenUnit)) {
+       throw ArgumentError('Đơn vị bán không phù hợp với sản phẩm.');
+     }
+     final index = cart.indexWhere((line) =>
+
+--- beta/lib/ui/catalog.dart
++++ upgrade/lib/ui/catalog.dart
+@@ -284,7 +284,7 @@
+                               ),
+                               const SizedBox(height: 3),
+                               hint(
+-                                'Còn ${area(p.available)} ${p.unit}${p.hasPackConversion ? ' • ${NumberFormat('0.##', 'vi').format(p.available / p.ratio)} thùng' : ''}',
++                                'Còn ${area(p.available)} ${p.unit}${p.hasPackConversion ? ' • ${NumberFormat('0.##', 'vi').format(p.available / p.ratio)} ${p.secondaryUnit} (${conversionHint(p)})' : ''}',
+                               ),
+                               if (p.note.isNotEmpty)
+                                 Text(
+@@ -443,19 +443,31 @@
+           minimum: 0,
+         )
+       : Product.fromJson(jsonDecode(jsonEncode(original.toJson())));
++  final reverseInitially =
++      p.hasPackConversion && p.ratio < productUnitScale;
+   final code = TextEditingController(text: p.code),
+       name = TextEditingController(text: p.name),
+       size = TextEditingController(text: p.size.trim() == 'm³' ? '' : p.size),
+       unit = TextEditingController(text: p.unit),
++      secondaryUnit = TextEditingController(
++        text: p.secondaryUnitLabel.isNotEmpty
++            ? p.secondaryUnitLabel
++            : (p.isBulk ? '' : 'thùng'),
++      ),
+       supplier = TextEditingController(text: p.supplier),
+       price = TextEditingController(text: '${p.price}'),
+       ratio = TextEditingController(
+-        text: p.ratio == 0 ? '' : '${p.ratio / 10000}',
++        text: p.ratio == 0
++            ? ''
++            : reverseInitially
++                ? '${productUnitScale / p.ratio}'
++                : '${p.ratio / productUnitScale}',
+       ),
+       minimum = TextEditingController(
+         text: p.minimum == 0 ? '' : '${p.minimum / 10000}',
+       ),
+       note = TextEditingController(text: p.note);
++  var reverseConversion = reverseInitially;
+   var saving = false;
+   String? reuseId;
+   String? reuseAction;
+@@ -618,11 +630,37 @@
+                     },
+                   ),
+                 ],
+-                field(price, 'Giá bán đ/đơn vị', moneyInput: true),
++                field(price, 'Giá bán đ/${canonicalProductUnit(unit.text)}', moneyInput: true),
++                field(
++                  secondaryUnit,
++                  'Đơn vị phụ (thùng, hộp, bao, kg, xe...)',
++                  onChanged: (_) => set(() {}),
++                ),
+                 field(
+                   ratio,
+-                  'Số đơn vị trong 1 thùng (không rõ thì để trống)',
++                  reverseConversion
++                      ? '1 ${canonicalProductUnit(unit.text).isEmpty ? 'đơn vị chính' : canonicalProductUnit(unit.text)} = bao nhiêu ${canonicalProductUnit(secondaryUnit.text).isEmpty ? 'đơn vị phụ' : canonicalProductUnit(secondaryUnit.text)}?'
++                      : '1 ${canonicalProductUnit(secondaryUnit.text).isEmpty ? 'đơn vị phụ' : canonicalProductUnit(secondaryUnit.text)} = bao nhiêu ${canonicalProductUnit(unit.text).isEmpty ? 'đơn vị chính' : canonicalProductUnit(unit.text)}?',
+                   number: true,
++                ),
++                CheckboxListTile(
++                  contentPadding: EdgeInsets.zero,
++                  dense: true,
++                  title: const Text('Nhập quy đổi chiều ngược (ví dụ 1 bao = 25 kg)'),
++                  value: reverseConversion,
++                  onChanged: (v) {
++                    final current = decimal(ratio.text);
++                    if (current.isFinite && current > 0) {
++                      ratio.text = (1 / current).toString();
++                    }
++                    set(() => reverseConversion = v ?? false);
++                  },
++                ),
++                hint(
++                  'Ví dụ: bán cái, nhập thùng: chính cái, phụ thùng, hệ số 5. '
++                  'Nếu đang dùng bao làm đơn vị chính: phụ kg, bật chiều ngược, nhập 25 (1 bao = 25 kg). '
++                  'Để trống hệ số nếu chỉ dùng một đơn vị. '
++                  'Không tự quy đổi các chứng từ cũ.',
+                 ),
+                 field(
+                   minimum,
+@@ -779,13 +817,16 @@
+             onPressed: saving
+                 ? null
+                 : () => attempt(() async {
+-                    final r = ratio.text.trim().isEmpty
++                    final enteredRatio = ratio.text.trim().isEmpty
+                             ? 0.0
+                             : decimal(ratio.text),
+                         m = minimum.text.trim().isEmpty
+                             ? 0.0
+                             : decimal(minimum.text);
+-                    if (!r.isFinite || !m.isFinite) {
++                    final r = reverseConversion && enteredRatio > 0
++                        ? 1 / enteredRatio
++                        : enteredRatio;
++                    if (!r.isFinite || !m.isFinite || enteredRatio < 0) {
+                       throw ArgumentError(
+                         'Quy đổi hoặc ngưỡng tồn không hợp lệ.',
+                       );
+@@ -798,9 +839,17 @@
+                       throw ArgumentError('Nhập đơn vị từ 1 đến 40 ký tự.');
+                     }
+                     p.unitLabel = canonicalProductUnit(unit.text);
+-                    if (p.unitLabel == 'thùng' && r > 0) {
+-                      throw ArgumentError('Đơn vị gốc đã là thùng, không nhập thêm quy đổi thùng.');
++                    final secondary = canonicalProductUnit(secondaryUnit.text);
++                    if (r > 0 &&
++                        (secondary.isEmpty ||
++                            secondary == p.unit ||
++                            secondary.length > 40 ||
++                            areaUnits(r) <= 0)) {
++                      throw ArgumentError(
++                        'Nhập đơn vị phụ khác đơn vị chính và hệ số lớn hơn 0.',
++                      );
+                     }
++                    p.secondaryUnitLabel = r > 0 ? secondary : '';
+                     p.supplier = supplier.text.trim();
+                     p.note = note.text.trim();
+                     p.price = whole(price.text);
+@@ -827,6 +876,7 @@
+     name,
+     size,
+     unit,
++    secondaryUnit,
+     supplier,
+     price,
+     ratio,
+
+--- beta/lib/ui/sales.dart
++++ upgrade/lib/ui/sales.dart
+@@ -278,7 +278,7 @@
+         : NumberFormat('0.####', 'vi').format(suggested / p.quantityStep),
+   );
+   final note = TextEditingController(text: p.note);
+-  var unit = p.hasPackConversion ? 'thùng' : p.unit;
++  var unit = p.packUnit;
+   final existing = c.cart.any((l) => l.productId == p.id);
+   await safeDialog<void>(
+     context: context,
+@@ -303,13 +303,13 @@
+                 titleText('${p.name} ${p.size}', size: 18),
+                 hint('${p.code} • ${money(p.price)} / ${p.unit}'),
+                 hint(
+-                  'Còn ${area(p.available)} ${p.unit}${p.hasPackConversion ? ' • 1 thùng = ${area(p.ratio)} ${p.unit}' : ''}',
++                  'Còn ${area(p.available)} ${p.unit}${p.hasPackConversion ? ' • ${conversionHint(p)}' : ''}',
+                 ),
+                 const SizedBox(height: 16),
+                 if (p.hasPackConversion)
+                   SegmentedButton<String>(
+                     segments: [
+-                      const ButtonSegment(value: 'thùng', label: Text('Theo thùng')),
++                      ButtonSegment(value: p.secondaryUnit, label: Text('Theo ${p.secondaryUnit}')),
+                       ButtonSegment(value: p.unit, label: Text('Theo ${p.unit}')),
+                     ],
+                     selected: {unit},
+@@ -318,8 +318,8 @@
+                       if (next == unit) return;
+                       final n = decimal(qty.text);
+                       if (n.isFinite && n > 0) {
+-                        final oldFactor = unit == 'thùng' ? p.ratio : productUnitScale;
+-                        final newFactor = next == 'thùng' ? p.ratio : productUnitScale;
++                        final oldFactor = p.factorForUnit(unit);
++                        final newFactor = p.factorForUnit(next);
+                         // Preserve the physical quantity when switching units.
+                         qty.text = NumberFormat('0.##########', 'vi')
+                             .format(n * oldFactor / newFactor);
+@@ -335,7 +335,7 @@
+                   valueListenable: qty,
+                   builder: (context, value, _) {
+                     final n = decimal(value.text);
+-                    final scaled = n * (unit == 'thùng' ? p.ratio : 10000);
++                    final scaled = n * (p.factorForUnit(unit));
+                     if (!scaled.isFinite ||
+                         scaled <= 0 ||
+                         scaled.round() <= 0) {
+@@ -400,7 +400,7 @@
+               await _ensureCartRequestIsEditable(c);
+               c.addCart(
+                 p,
+-                (n * (unit == 'thùng' ? p.ratio : 10000)).round(),
++                (n * (p.factorForUnit(unit))).round(),
+                 note: note.text,
+                 saleUnit: unit,
+               );
+@@ -778,8 +778,8 @@
+                     ],
+                   ),
+                   hint(
+-                    (l.saleUnit.isEmpty ? p.packUnit : l.saleUnit) == 'thùng' && p.hasPackConversion
+-                        ? '${NumberFormat('0.####', 'vi').format(l.area / p.ratio)} thùng • ${area(l.area)} ${p.unit}'
++                    p.isSecondaryUnit(l.saleUnit.isEmpty ? p.packUnit : l.saleUnit)
++                        ? '${NumberFormat('0.####', 'vi').format(l.area / p.ratio)} ${p.secondaryUnit} • ${area(l.area)} ${p.unit}'
+                         : '${area(l.area)} ${p.unit}',
+                   ),
+                   if (l.note.isNotEmpty)
+@@ -807,7 +807,7 @@
+                             ? null
+                             : () {
+                                 final i = c.cart.indexOf(l);
+-                                final step = (l.saleUnit.isEmpty ? p.packUnit : l.saleUnit) == 'thùng' && p.hasPackConversion
++                                final step = p.isSecondaryUnit(l.saleUnit.isEmpty ? p.packUnit : l.saleUnit)
+                                     ? p.ratio
+                                     : productUnitScale;
+                                 if (l.area <= step) {
+@@ -828,7 +828,7 @@
+                         tooltip: 'Thêm một ${l.saleUnit.isEmpty ? p.packUnit : l.saleUnit}',
+                         onPressed: c.busy || locked
+                             ? null
+-                            : () => c.addCart(p, (l.saleUnit.isEmpty ? p.packUnit : l.saleUnit) == 'thùng' && p.hasPackConversion ? p.ratio : productUnitScale, note: '', saleUnit: l.saleUnit),
++                            : () => c.addCart(p, p.isSecondaryUnit(l.saleUnit.isEmpty ? p.packUnit : l.saleUnit) ? p.ratio : productUnitScale, note: '', saleUnit: l.saleUnit),
+                         icon: const Icon(Icons.add_circle_outline),
+                       ),
+                     ],
+
+--- beta/lib/ui/operations.dart
++++ upgrade/lib/ui/operations.dart
+@@ -341,7 +341,7 @@
+ Future<void> receiveStock(BuildContext context, Product p) async {
+   final shop = Get.find<ShopController>();
+   final operationId = newId();
+-  var inputUnit = p.hasPackConversion ? 'thùng' : p.unit;
++  var inputUnit = p.packUnit;
+   final qty = TextEditingController(text: '10');
+   final initialBaseCost = (p.price * .7).round();
+   final cost = TextEditingController(
+@@ -364,15 +364,15 @@
+                 if (p.hasPackConversion) ...[
+                   SegmentedButton<String>(
+                     segments: [
+-                      const ButtonSegment(value: 'thùng', label: Text('Theo thùng')),
++                      ButtonSegment(value: p.secondaryUnit, label: Text('Theo ${p.secondaryUnit}')),
+                       ButtonSegment(value: p.unit, label: Text('Theo ${p.unit}')),
+                     ],
+                     selected: {inputUnit},
+                     onSelectionChanged: (selected) {
+                       final next = selected.first;
+                       if (next == inputUnit) return;
+-                      final oldFactor = inputUnit == 'thùng' ? p.ratio : productUnitScale;
+-                      final newFactor = next == 'thùng' ? p.ratio : productUnitScale;
++                      final oldFactor = p.factorForUnit(inputUnit);
++                      final newFactor = p.factorForUnit(next);
+                       final oldQty = decimal(qty.text);
+                       if (oldQty.isFinite && oldQty > 0) {
+                         qty.text = NumberFormat('0.##########', 'vi')
+@@ -398,7 +398,7 @@
+                     if (!n.isFinite || n <= 0 || price < 0) {
+                       return const Text('Kiểm tra số lượng và giá nhập trước khi lưu.');
+                     }
+-                    final byPack = inputUnit == 'thùng' && p.hasPackConversion;
++                    final byPack = p.isSecondaryUnit(inputUnit);
+                     final factor = inputUnitFactor(packRatio: p.ratio, byPack: byPack);
+                     if (factor <= 0 || n * factor < .5) {
+                       return const Text('Số lượng quá nhỏ để ghi nhận.');
+@@ -428,7 +428,7 @@
+                   label: Text(DateFormat('dd/MM/yyyy').format(date)),
+                 ),
+                 hint(
+-                  'Nhà cung cấp: ${p.supplier}\n${p.hasPackConversion ? '1 thùng = ${area(p.ratio)} ${p.unit}' : 'Nhập số lượng đã tự tính theo ${p.unit}'}',
++                  'Nhà cung cấp: ${p.supplier}\n${p.hasPackConversion ? conversionHint(p) : 'Nhập số lượng đã tự tính theo ${p.unit}'}',
+                 ),
+               ],
+             ),
+@@ -445,7 +445,7 @@
+               if (!n.isFinite || n <= 0) {
+                 throw ArgumentError('Số lượng nhập không hợp lệ.');
+               }
+-              final byPack = inputUnit == 'thùng' && p.hasPackConversion;
++              final byPack = p.isSecondaryUnit(inputUnit);
+               final units = baseQuantityFromInput(
+                 quantity: n, packRatio: p.ratio, byPack: byPack);
+               final enteredCost = whole(cost.text);
+@@ -471,6 +471,7 @@
+                     cost: unitCost,
+                     ratio: p.ratio,
+                     unit: p.unit,
++                    secondaryUnit: p.hasPackConversion ? p.secondaryUnit : '',
+                     date: date,
+                   ),
+                 );
+@@ -1586,7 +1587,8 @@
+             'NCC',
+             'Đơn vị',
+             'Giá đ/đơn vị',
+-            'Quy đổi thùng/khối',
++            'Đơn vị phụ',
++            '1 đơn vị phụ = số đơn vị chính',
+             'Tồn',
+             'Giữ',
+             'Đang bán',
+@@ -1600,6 +1602,7 @@
+               p.supplier,
+               p.unit,
+               p.price,
++              p.hasPackConversion ? p.secondaryUnit : '',
+               p.ratio / 10000,
+               p.stock / 10000,
+               p.reserved / 10000,
+
+--- beta/lib/ui/print_service.dart
++++ upgrade/lib/ui/print_service.dart
+@@ -12,21 +12,22 @@
+   // Legacy invoices without saleUnit are always displayed in the base unit.
+   static String _saleUnit(Map row) {
+     final selected = row['saleUnit'];
+-    return selected is String && selected.isNotEmpty &&
+-            (selected != 'thùng' || ((row['ratio'] as num?) ?? 0) > 0)
++    final base = row['unit'] as String? ?? 'm²';
++    return selected is String && selected.isNotEmpty && selected != base &&
++            ((row['ratio'] as num?) ?? 0) > 0
+         ? selected
+-        : (row['unit'] as String? ?? 'm²');
++        : base;
+   }
+ 
+   static num _saleQuantity(Map row) {
+-    if (_saleUnit(row) == 'thùng') {
++    if (_saleUnit(row) != (row['unit'] as String? ?? 'm²')) {
+       return (row['area'] as num) / (row['ratio'] as num);
+     }
+     return (row['area'] as num) / 10000;
+   }
+ 
+   static int _saleUnitPrice(Map row) {
+-    if (_saleUnit(row) == 'thùng') {
++    if (_saleUnit(row) != (row['unit'] as String? ?? 'm²')) {
+       return lineMoney((row['ratio'] as num).toInt(),
+           (row['price'] as num).toInt());
+     }
+
+--- beta/lib/ui/audit_text.dart
++++ upgrade/lib/ui/audit_text.dart
+@@ -74,7 +74,8 @@
+         'size': 'Kích thước / đơn vị',
+         'supplier': 'Nhà cung cấp',
+         'price': 'Giá bán',
+-        'ratio': 'Quy đổi thùng',
++        'ratio': 'Hệ số quy đổi',
++        'secondaryUnit': 'Đơn vị phụ',
+         'minimum': 'Ngưỡng sắp hết',
+         'note': 'Lưu ý',
+         'active': 'Kinh doanh',
+@@ -136,7 +137,7 @@
+   if (value == null || value == '') return 'Chưa nhập';
+   if (field == 'price' && value is num) return money(value);
+   if (field == 'ratio' && value is num) {
+-    return value == 0 ? 'Chưa nhập' : '1 thùng = ${area(value)} đơn vị cơ sở';
++    return value == 0 ? 'Chưa nhập' : '1 đơn vị phụ = ${area(value)} đơn vị chính';
+   }
+   if (field == 'minimum' && value is num) return '${area(value)} đơn vị bán';
+   if (field == 'active') return value == true ? 'Đang bán' : 'Ngừng bán';
+
+--- beta/lib/data/sync/offline_book_operation.dart
++++ upgrade/lib/data/sync/offline_book_operation.dart
+@@ -1,125 +1,133 @@
+-import 'dart:convert';
+-
+-import '../../domain/shop.dart';
+-import '../local/app_database.dart';
+-
+-/// Pending inventory receipt or debt payment. The immutable audit marker is
+-/// committed in the same Firestore transaction as the business mutation.
+-class OfflineBookOperation {
+-  static const receipt = 'receive-stock.v1';
+-  static const payment = 'collect-payment.v1';
+-
+-  final String type, id, actorId, target;
+-  final int amount;
+-  final int? cost, ratio, expectedCollected;
+-  final String? unit;
+-  final DateTime? date;
+-
+-  const OfflineBookOperation({
+-    required this.type,
+-    required this.id,
+-    required this.actorId,
+-    required this.target,
+-    required this.amount,
+-    this.cost,
+-    this.ratio,
+-    this.expectedCollected,
+-    this.unit,
+-    this.date,
+-  });
+-
+-  static bool supports(String type) => type == receipt || type == payment;
+-
+-  String get label => type == receipt ? 'Nhập kho' : 'Thu nợ';
+-  String get markerId => 'offline-$id';
+-
+-  String encode() => jsonEncode({
+-    'id': id,
+-    'actorId': actorId,
+-    'target': target,
+-    'amount': amount,
+-    if (type == payment) 'expectedCollected': expectedCollected,
+-    if (type == receipt) ...{
+-      'cost': cost,
+-      'ratio': ratio,
+-      'unit': unit,
+-      'date': date?.toIso8601String(),
+-    },
+-  });
+-
+-  factory OfflineBookOperation.decode(PendingOperation row) {
+-    final json = jsonDecode(row.payloadJson) as Json;
+-    if (!supports(row.operationType) ||
+-        json['id'] != row.id ||
+-        row.id.isEmpty ||
+-        row.id.contains('/')) {
+-      throw const FormatException('Mã giao dịch offline không hợp lệ.');
+-    }
+-    return OfflineBookOperation(
+-      type: row.operationType,
+-      id: row.id,
+-      actorId: json['actorId'] as String,
+-      target: json['target'] as String,
+-      amount: json['amount'] as int,
+-      cost: json['cost'] as int?,
+-      ratio: json['ratio'] as int?,
+-      expectedCollected: json['expectedCollected'] as int?,
+-      unit: json['unit'] as String?,
+-      date: json['date'] is String
+-          ? DateTime.parse(json['date'] as String)
+-          : null,
+-    );
+-  }
+-
+-  void apply(ShopData data, Actor actor) {
+-    actor.requireAccess();
+-    if (actor.id != actorId || amount <= 0 || !supports(type)) {
+-      throw StateError(
+-        'Tài khoản hoặc số lượng giao dịch offline không hợp lệ.',
+-      );
+-    }
+-    final existing = data.audit
+-        .where((row) => row['id'] == markerId)
+-        .firstOrNull;
+-    if (existing != null) {
+-      if (existing['actor'] != actorId ||
+-          existing['operationType'] != type ||
+-          existing['operationPayload'] != encode()) {
+-        throw StateError('Mã giao dịch đã được dùng với nội dung khác.');
+-      }
+-      return;
+-    }
+-
+-    if (type == receipt) {
+-      final product = data.product(target);
+-      if (!product.active ||
+-          product.ratio != ratio ||
+-          product.unit != unit ||
+-          cost == null ||
+-          date == null) {
+-        throw StateError(
+-          'Sản phẩm hoặc quy đổi đã đổi. Cần đối chiếu phiếu nhập.',
+-        );
+-      }
+-      data.receive(target, amount, cost!, date!, actor, 'LO-$id');
+-    } else {
+-      final order = data.orders.firstWhere((o) => o['id'] == target);
+-      if (ShopData.collected(order) != expectedCollected) {
+-        throw StateError(
+-          'Đơn đã có thay đổi số tiền thu. Cần đối chiếu khoản thu.',
+-        );
+-      }
+-      data.recordPayment(target, amount, id, actor);
+-    }
+-    data.audit.insert(0, {
+-      'id': markerId,
+-      'actor': actorId,
+-      'action': '$label offline đã đồng bộ',
+-      'target': target,
+-      'detail': 'Xác nhận giao dịch $id',
+-      'at': DateTime.now().toUtc().toIso8601String(),
+-      'operationType': type,
+-      'operationPayload': encode(),
+-    });
+-  }
+-}
++import 'dart:convert';
++
++import '../../domain/shop.dart';
++import '../local/app_database.dart';
++
++/// Pending inventory receipt or debt payment. The immutable audit marker is
++/// committed in the same Firestore transaction as the business mutation.
++class OfflineBookOperation {
++  static const receipt = 'receive-stock.v1';
++  static const payment = 'collect-payment.v1';
++
++  final String type, id, actorId, target;
++  final int amount;
++  final int? cost, ratio, expectedCollected;
++  final String? unit;
++  // Absent in legacy pending receipts; preserve their exact payload bytes.
++  final String? secondaryUnit;
++  final DateTime? date;
++
++  const OfflineBookOperation({
++    required this.type,
++    required this.id,
++    required this.actorId,
++    required this.target,
++    required this.amount,
++    this.cost,
++    this.ratio,
++    this.expectedCollected,
++    this.unit,
++    this.secondaryUnit,
++    this.date,
++  });
++
++  static bool supports(String type) => type == receipt || type == payment;
++
++  String get label => type == receipt ? 'Nhập kho' : 'Thu nợ';
++  String get markerId => 'offline-$id';
++
++  String encode() => jsonEncode({
++    'id': id,
++    'actorId': actorId,
++    'target': target,
++    'amount': amount,
++    if (type == payment) 'expectedCollected': expectedCollected,
++    if (type == receipt) ...{
++      'cost': cost,
++      'ratio': ratio,
++      'unit': unit,
++      if (secondaryUnit != null) 'secondaryUnit': secondaryUnit,
++      'date': date?.toIso8601String(),
++    },
++  });
++
++  factory OfflineBookOperation.decode(PendingOperation row) {
++    final json = jsonDecode(row.payloadJson) as Json;
++    if (!supports(row.operationType) ||
++        json['id'] != row.id ||
++        row.id.isEmpty ||
++        row.id.contains('/')) {
++      throw const FormatException('Mã giao dịch offline không hợp lệ.');
++    }
++    return OfflineBookOperation(
++      type: row.operationType,
++      id: row.id,
++      actorId: json['actorId'] as String,
++      target: json['target'] as String,
++      amount: json['amount'] as int,
++      cost: json['cost'] as int?,
++      ratio: json['ratio'] as int?,
++      expectedCollected: json['expectedCollected'] as int?,
++      unit: json['unit'] as String?,
++      secondaryUnit: json['secondaryUnit'] as String?,
++      date: json['date'] is String
++          ? DateTime.parse(json['date'] as String)
++          : null,
++    );
++  }
++
++  void apply(ShopData data, Actor actor) {
++    actor.requireAccess();
++    if (actor.id != actorId || amount <= 0 || !supports(type)) {
++      throw StateError(
++        'Tài khoản hoặc số lượng giao dịch offline không hợp lệ.',
++      );
++    }
++    final existing = data.audit
++        .where((row) => row['id'] == markerId)
++        .firstOrNull;
++    if (existing != null) {
++      if (existing['actor'] != actorId ||
++          existing['operationType'] != type ||
++          existing['operationPayload'] != encode()) {
++        throw StateError('Mã giao dịch đã được dùng với nội dung khác.');
++      }
++      return;
++    }
++
++    if (type == receipt) {
++      final product = data.product(target);
++      if (!product.active ||
++          product.ratio != ratio ||
++          product.unit != unit ||
++          (secondaryUnit != null &&
++              (product.hasPackConversion ? product.secondaryUnit : '') !=
++                  secondaryUnit) ||
++          cost == null ||
++          date == null) {
++        throw StateError(
++          'Sản phẩm hoặc quy đổi đã đổi. Cần đối chiếu phiếu nhập.',
++        );
++      }
++      data.receive(target, amount, cost!, date!, actor, 'LO-$id');
++    } else {
++      final order = data.orders.firstWhere((o) => o['id'] == target);
++      if (ShopData.collected(order) != expectedCollected) {
++        throw StateError(
++          'Đơn đã có thay đổi số tiền thu. Cần đối chiếu khoản thu.',
++        );
++      }
++      data.recordPayment(target, amount, id, actor);
++    }
++    data.audit.insert(0, {
++      'id': markerId,
++      'actor': actorId,
++      'action': '$label offline đã đồng bộ',
++      'target': target,
++      'detail': 'Xác nhận giao dịch $id',
++      'at': DateTime.now().toUtc().toIso8601String(),
++      'operationType': type,
++      'operationPayload': encode(),
++    });
++  }
++}
+
+--- beta/firestore.rules
++++ upgrade/firestore.rules
+@@ -115,8 +115,9 @@
+       match /products/{id} {
+         function product() {
+           let p = request.resource.data.value;
+-          return p.keys().hasOnly(['id','code','name','size','supplier','price','ratio','minimum','active','images','lots','note','unit','deleted','archivedFromLists'])
++          return p.keys().hasOnly(['id','code','name','size','supplier','price','ratio','minimum','active','images','lots','note','unit','secondaryUnit','deleted','archivedFromLists'])
+             && (!('unit' in p) || (p.unit is string && p.unit.size() > 0 && p.unit.size() <= 40))
++            && (!('secondaryUnit' in p) || (p.secondaryUnit is string && p.secondaryUnit.size() > 0 && p.secondaryUnit.size() <= 40 && p.secondaryUnit != p.get('unit', 'm²') && p.ratio > 0))
+             && p.code is string && p.name is string && p.name.size() > 0
+             && p.price is int && p.price > 0 && p.price <= 1000000000
+             && p.ratio is int && p.ratio >= 0 && p.minimum is int && p.minimum >= 0
+@@ -132,11 +133,14 @@
+           && request.resource.data.value.get('deleted', false) == false
+           && request.resource.data.value.get('archivedFromLists', false) == false;
+         allow update: if envelope(id) && product()
++          // Old clients must not silently drop an already-configured secondary unit.
++          && (!('secondaryUnit' in resource.data.value) ||
++              'secondaryUnit' in request.resource.data.value)
+           && (request.resource.data.value.code == resource.data.value.code
+               || resource.data.value.lots.size() == 0)
+           && (owner() || request.resource.data.value.diff(resource.data.value)
+               .affectedKeys().hasOnly(['code','name','size','supplier','price',
+-                'ratio','minimum','active','images','lots','note','unit']));
++                'ratio','minimum','active','images','lots','note','unit','secondaryUnit']));
+       }
+       match /customers/{id} {
+         function validCustomer() {

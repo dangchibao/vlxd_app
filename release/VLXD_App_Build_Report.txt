@@ -1,10 +1,10 @@
 ﻿Ten phan mem: VLXD App
 Hai cua hang: Bay Hai va Hai Soc
-Build luc: 2026-11-15 23:52:19
+Build luc: 2026-11-20 20:37:26
 Ma nguon: D:\app\vlxd_app
-Version: 1.0.1 / Build: 2
-Setup: D:\app\vlxd_app\release\installers\VLXD_App_Setup_1.0.1.exe
-SHA256: 2668E7E41C9F5CB6B1BE030CC7355D6F7AC4AA76EA38BD968DB053B7BBA20A49
+Version: 1.0.6 / Build: 7
+Setup: D:\app\vlxd_app\release\installers\VLXD_App_Setup_1.0.6.exe
+SHA256: F1A1E929495EB20D2E42627123C47548F467EA09AE79A1B6A42A8EA50705B635
 Inno AppId: VLXD.App.Windows.Desktop
 Che do: Cai moi cho nguoi dung hien tai, trong LOCALAPPDATA
 Ghi chu: Khong tu xoa AppData, Firebase, SQLite, hoac du lieu web.

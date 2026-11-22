@@ -1,0 +1,38 @@
+VLXD BAY HAI - KHOI PHUC DON VI PHU / MO DUNG BAN MOI
+=====================================================
+
+1) GIAI NEN TOAN BO ZIP vao 1 thu muc, vi du:
+   D:\app\vlxd_app\.secondary_unit_fix
+   KHONG bam truc tiep file CMD trong cua so ZIP.
+
+2) DONG HOAN TOAN VLXD Bay Hai dang chay.
+
+3) Nhan dup 01_KHOI_PHUC_DON_VI_PHU.cmd
+   Tool se:
+   - Kiem tra code local co du thong tin don vi phu
+   - Neu field da co: KHONG sua code; build lai Windows
+   - Neu code co save/controller/model nhung chua hien field:
+     sao luu catalog.dart va them field (chi 1 vi tri an toan)
+   - flutter pub get; flutter analyze; flutter test; flutter build windows --release
+   - Tao shortcut tren Desktop: VLXD Bay Hai - BAN MOI
+   - Mo dung EXE Release moi
+
+4) Moi lan kiem tra phai dung shortcut 'VLXD Bay Hai - BAN MOI',
+   KHONG dung shortcut cu cua ban cai truoc.
+
+5) Mo Hang hoa > Sua san pham. Kiem tra o ten DON VI PHU
+   (thung / bao / cay / hop) va he so quy doi.
+
+KHONG TU DONG lam nhung viec sau:
+- Khong cai de / go cai ban cu, khong xoa database SQLite
+- Khong doi Firebase Rules, khong deploy, khong ghi Firebase
+- Khong thay doi logic ton kho, gia ban, hoa don cu
+- Khong copy 1 minh EXE ra ngoai thu muc Release
+
+Neu no bao code chua ho tro hoac khong tim duoc 1 vi tri UI duy nhat,
+ban va se DUNG, KHONG ghi de. Can gui 2 file code moi nhat:
+  D:\app\vlxd_app\lib\ui\catalog.dart
+  D:\app\vlxd_app\lib\domain\shop.dart
+
+Neu co file duoc sua, backup o:
+  D:\app\vlxd_app\backup\secondary_unit_patch\

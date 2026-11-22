@@ -23,7 +23,9 @@ class InvoiceFilter {
       (from == null || through == null || !from!.isAfter(through!));
 
   bool matches(Json order, String customerText) {
-    if (!valid || !['Đã bán', 'Đã trả hàng'].contains(order['status'])) return false;
+    if (!valid || !['Đã bán', 'Đã trả hàng'].contains(order['status'])) {
+      return false;
+    }
     if (!'${order['id']} $customerText'.toLowerCase().contains(
       query.trim().toLowerCase(),
     )) {

@@ -74,7 +74,8 @@ part of 'app.dart';
         'size': 'Kích thước / đơn vị',
         'supplier': 'Nhà cung cấp',
         'price': 'Giá bán',
-        'ratio': 'Quy đổi thùng',
+        'ratio': 'Hệ số quy đổi',
+        'secondaryUnit': 'Đơn vị phụ',
         'minimum': 'Ngưỡng sắp hết',
         'note': 'Lưu ý',
         'active': 'Kinh doanh',
@@ -136,7 +137,9 @@ String _auditValue(String field, dynamic value) {
   if (value == null || value == '') return 'Chưa nhập';
   if (field == 'price' && value is num) return money(value);
   if (field == 'ratio' && value is num) {
-    return value == 0 ? 'Chưa nhập' : '1 thùng = ${area(value)} m²';
+    return value == 0
+        ? 'Chưa nhập'
+        : '1 đơn vị phụ = ${area(value)} đơn vị chính';
   }
   if (field == 'minimum' && value is num) return '${area(value)} đơn vị bán';
   if (field == 'active') return value == true ? 'Đang bán' : 'Ngừng bán';

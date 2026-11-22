@@ -1,0 +1,37 @@
+if (p.active && !p.deleted && !p.archivedFromLists) ...[
+        // product-action-row-exact-v4: FOUR icon-only buttons, never a wide label.
+        IconButton(
+          tooltip: 'Sửa sản phẩm',
+          onPressed: () => editProduct(context, original: p),
+          icon: const _ProductActionGlyph(
+            _ProductActionKind.pencil,
+            Color(0xFF1976D2),
+          ),
+        ),
+        if (Get.find<ShopController>().actor?.canAdmin == true &&
+            p.lots.isNotEmpty)
+          IconButton(
+            tooltip: 'Đính chính đơn vị nhập nhầm (Admin)',
+            onPressed: () => correctReceivedUnitDialog(context, p),
+            icon: const _ProductActionGlyph(
+              _ProductActionKind.clipboardCheck,
+              Color(0xFFD97706),
+            ),
+          ),
+        IconButton(
+          tooltip: 'Mã vạch & In',
+          onPressed: () => showBarcode(context, p),
+          icon: const _ProductActionGlyph(
+            _ProductActionKind.printer,
+            Color(0xFF0D9488),
+          ),
+        ),
+        IconButton(
+          tooltip: 'Ngừng kinh doanh (không xóa dữ liệu)',
+          onPressed: () => archiveProductDialog(context, p),
+          icon: const _ProductActionGlyph(
+            _ProductActionKind.ban,
+            Color(0xFFDC2626),
+          ),
+        ),
+      

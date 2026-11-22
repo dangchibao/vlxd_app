@@ -1,0 +1,57 @@
+{
+  "name": "VLXD Mobile UI compact layout Android & iPhone PWA",
+  "base": "dangchibao/vlxd_app main + VLXD hang hoa V2",
+  "created": "2026-11-18",
+  "files": [
+    {
+      "path": "lib/ui/app.dart",
+      "oldHash": "f5955a28f24b3465107a3b428b529feb00d951d71d304da202d4d016762f3e87",
+      "newHash": "424f4a1bdfe596ece4e94d3b9f94a81262c44e08933b3346f71eaf25cc7406f8"
+    },
+    {
+      "path": "lib/ui/sales.dart",
+      "oldHash": "bb0111ab5f3bd6b7530a7e2a23ab5e73c5326c609edee9f1d0f63756cfa99854",
+      "newHash": "a556d2673731616f3a5472f1dc9eaca52858712c209b070e5a2604347f06adf7"
+    },
+    {
+      "path": "lib/ui/mobile_sales.dart",
+      "oldHash": null,
+      "newHash": "791b139fb8ff160ebc5552506c7895db843af9aec439b69f0f97127d11582582"
+    },
+    {
+      "path": "lib/ui/mobile_products.dart",
+      "oldHash": null,
+      "newHash": "921636201a4558f54fc49cddc4803272c0cc428ecbec1d7cbca9b040c64b629b"
+    },
+    {
+      "path": "lib/ui/catalog.dart",
+      "oldHash": "c3c26bb72ef01476bb7391b651f6d4d982be0fab68e42ce1bb37e9bf6a6978e7",
+      "newHash": "b0d36bfdb7b8073f5fb5f2add3ae0600bde9f45053ae728bd94d58059d293446"
+    },
+    {
+      "path": "lib/ui/shell.dart",
+      "oldHash": "f2fa5679a06d6263d7c2d416ef1a8e0a45c8932d9b1b6c849ea2c96da74287c5",
+      "newHash": "5d447363ae6cd4b94662a345848a535098fc9808adb0c926243b9e76ebde2077"
+    },
+    {
+      "path": "lib/ui/pagination.dart",
+      "oldHash": "5bd6afb9844830e9e9e30ef52c5eb7f276a026dddfcad670019ce28a31116abe",
+      "newHash": "027858b1127dc97936513be6b66bd670c42f7d78f010a435317d927dfeebf2a5"
+    },
+    {
+      "path": "lib/ui/invoices.dart",
+      "oldHash": "20bd51604b51da6eb23967b415f89183c0ecbe0a569aba74cd0aee7c28779c18",
+      "newHash": "328fb46b2ff10882c7ab495c55a43c00fc8f1eb1c9cbcfe4335a7df3b7563f94"
+    },
+    {
+      "path": "lib/ui/history.dart",
+      "oldHash": "41f4680c57c1b14ba24ca1b5c2ff6804521920f07f50906b268269dd35f3f29e",
+      "newHash": "2d144a92c39e795a2c67f51166222e4cc5e126aa83219e19b6b6cba9eae250fa"
+    },
+    {
+      "path": "test/mobile_responsive_sales_test.dart",
+      "oldHash": null,
+      "newHash": "759992e0ec816793d486e3bfff479a1b7e28f9ac60f69c2a39f17eb307c9d671"
+    }
+  ]
+}

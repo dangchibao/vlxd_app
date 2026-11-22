@@ -101,7 +101,7 @@ class _OrdersPageState extends State<OrdersPage> {
       return Scaffold(
         appBar: AppBar(title: const Text('Lịch sử đơn hàng')),
         body: ListView(
-          padding: const EdgeInsets.all(24),
+          padding: vlxdPagePadding(context),
           children: [
             TextField(
               decoration: const InputDecoration(
@@ -114,15 +114,16 @@ class _OrdersPageState extends State<OrdersPage> {
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: ['Tất cả', 'Giữ hàng', 'Đã bán', 'Đã trả hàng', 'Đã hủy']
-                  .map(
-                    (v) => ChoiceChip(
-                      label: Text(v),
-                      selected: status == v,
-                      onSelected: (_) => setState(() => status = v),
-                    ),
-                  )
-                  .toList(),
+              children:
+                  ['Tất cả', 'Giữ hàng', 'Đã bán', 'Đã trả hàng', 'Đã hủy']
+                      .map(
+                        (v) => ChoiceChip(
+                          label: Text(v),
+                          selected: status == v,
+                          onSelected: (_) => setState(() => status = v),
+                        ),
+                      )
+                      .toList(),
             ),
             const SizedBox(height: 16),
             if (orders.isEmpty)
@@ -231,8 +232,10 @@ Future<void> cancelHeldDialog(BuildContext context, Json o) async {
               const SizedBox(height: 16),
               field(reason, 'Lý do hủy'),
               if (ShopData.collected(o) > 0) ...[
-                const Text('Chỉ tài khoản chủ được xác nhận đã hoàn tiền thực tế. '
-                    'Nếu chưa hoàn cọc, không được hủy đơn theo quy trình này.'),
+                const Text(
+                  'Chỉ tài khoản chủ được xác nhận đã hoàn tiền thực tế. '
+                  'Nếu chưa hoàn cọc, không được hủy đơn theo quy trình này.',
+                ),
                 CheckboxListTile(
                   contentPadding: EdgeInsets.zero,
                   value: refunded,
@@ -255,9 +258,13 @@ Future<void> cancelHeldDialog(BuildContext context, Json o) async {
                 ? null
                 : () => attempt(() async {
                     await Get.find<ShopController>().change(
-                      (d, a) => d.cancelHeld(o['id'], reason.text, a,
-                          depositRefunded: refunded,
-                          refundMethod: refunded ? 'Tiền mặt (chủ xác nhận)' : ''),
+                      (d, a) => d.cancelHeld(
+                        o['id'],
+                        reason.text,
+                        a,
+                        depositRefunded: refunded,
+                        refundMethod: refunded ? 'Tiền mặt (chủ xác nhận)' : '',
+                      ),
                     );
                     if (ctx.mounted) Navigator.pop(ctx);
                   }),

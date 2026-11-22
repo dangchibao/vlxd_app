@@ -19,30 +19,45 @@ class VlxdPager extends StatelessWidget {
     final pages = math.max(1, (total / pageSize).ceil());
     final current = page.clamp(0, pages - 1).toInt();
     if (total <= pageSize) return const SizedBox.shrink();
+    final mobile = MediaQuery.sizeOf(context).width < 600;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: EdgeInsets.symmetric(vertical: mobile ? 5 : 10),
       child: Wrap(
         alignment: WrapAlignment.center,
         crossAxisAlignment: WrapCrossAlignment.center,
         spacing: 8,
         runSpacing: 6,
         children: [
-          OutlinedButton.icon(
-            onPressed: current == 0 ? null : () => onChanged(current - 1),
-            icon: const Icon(Icons.chevron_left, size: 18),
-            label: const Text('Trước'),
-          ),
+          mobile
+              ? IconButton.outlined(
+                  tooltip: 'Trang trước',
+                  onPressed: current == 0 ? null : () => onChanged(current - 1),
+                  icon: const Icon(Icons.chevron_left),
+                )
+              : OutlinedButton.icon(
+                  onPressed: current == 0 ? null : () => onChanged(current - 1),
+                  icon: const Icon(Icons.chevron_left, size: 18),
+                  label: const Text('Trước'),
+                ),
           Text(
             '${current + 1} / $pages',
             style: const TextStyle(fontWeight: FontWeight.w700),
           ),
-          OutlinedButton.icon(
-            onPressed: current + 1 >= pages
-                ? null
-                : () => onChanged(current + 1),
-            icon: const Icon(Icons.chevron_right, size: 18),
-            label: const Text('Sau'),
-          ),
+          mobile
+              ? IconButton.outlined(
+                  tooltip: 'Trang sau',
+                  onPressed: current + 1 >= pages
+                      ? null
+                      : () => onChanged(current + 1),
+                  icon: const Icon(Icons.chevron_right),
+                )
+              : OutlinedButton.icon(
+                  onPressed: current + 1 >= pages
+                      ? null
+                      : () => onChanged(current + 1),
+                  icon: const Icon(Icons.chevron_right, size: 18),
+                  label: const Text('Sau'),
+                ),
           Text('$total mục', style: const TextStyle(fontSize: 12)),
         ],
       ),

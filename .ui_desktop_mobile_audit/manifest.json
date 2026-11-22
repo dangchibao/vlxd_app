@@ -1,0 +1,137 @@
+{
+  "version": "20261120-responsive-ui-v1",
+  "changes": [
+    {
+      "file": "lib/ui/app.dart",
+      "label": "Prevent floating labels over field borders while retaining labelText selectors",
+      "pattern": "floatingLabelBehavior:\\s*FloatingLabelBehavior\\.always,\\s*alignLabelWithHint:\\s*true,",
+      "replacement": "floatingLabelBehavior: FloatingLabelBehavior.auto,\n      alignLabelWithHint: false,"
+    },
+    {
+      "file": "lib/ui/catalog.dart",
+      "label": "Add accessible compact field helper only for correction dialog",
+      "pattern": "/// Standalone, intentional correction workflow\\.",
+      "replacement": "// vlxd-responsive-correction-v1: explicit labels avoid overlap on mobile/web.\nWidget _correctionInput(\n  TextEditingController controller,\n  String label, {\n  bool decimalNumber = false,\n  bool moneyInput = false,\n  String? hintText,\n}) => Padding(\n  padding: const EdgeInsets.only(bottom: 12),\n  child: Column(\n    crossAxisAlignment: CrossAxisAlignment.start,\n    children: [\n      Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),\n      const SizedBox(height: 6),\n      TextField(\n        controller: controller,\n        keyboardType: moneyInput\n            ? TextInputType.number\n            : decimalNumber\n                ? const TextInputType.numberWithOptions(decimal: true)\n                : TextInputType.text,\n        inputFormatters: moneyInput ? [const MoneyInputFormatter()] : null,\n        decoration: InputDecoration(\n          hintText: hintText,\n          isDense: true,\n          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),\n        ),\n      ),\n    ],\n  ),\n);\n\n/// Standalone, intentional correction workflow."
+    },
+    {
+      "file": "lib/ui/catalog.dart",
+      "label": "Correction new unit field",
+      "pattern": "field\\(\\s*newUnit,\\s*\\'Đơn vị chính đúng \\(ví dụ m²\\)\\'\\s*\\)",
+      "replacement": "_correctionInput(newUnit, 'Đơn vị chính đúng (ví dụ m²)')"
+    },
+    {
+      "file": "lib/ui/catalog.dart",
+      "label": "Correction secondary unit field",
+      "pattern": "field\\(\\s*secondary,\\s*\\'Đơn vị phụ \\(ví dụ thùng; để trống nếu không dùng\\)\\'\\s*\\)",
+      "replacement": "_correctionInput(secondary, 'Đơn vị phụ (ví dụ thùng; để trống nếu không dùng)')"
+    },
+    {
+      "file": "lib/ui/catalog.dart",
+      "label": "Correction ratio field",
+      "pattern": "field\\(\\s*ratio,\\s*\\'1 đơn vị phụ = bao nhiêu đơn vị chính\\?\\'\\s*,\\s*number:\\s*true\\s*\\)",
+      "replacement": "_correctionInput(ratio, '1 đơn vị phụ = bao nhiêu đơn vị chính?', decimalNumber: true)"
+    },
+    {
+      "file": "lib/ui/catalog.dart",
+      "label": "Correction sale price field",
+      "pattern": "field\\(\\s*newPrice,\\s*\\'Giá bán mới / đơn vị chính \\(đ\\)\\'\\s*,\\s*moneyInput:\\s*true\\s*\\)",
+      "replacement": "_correctionInput(newPrice, 'Giá bán mới / đơn vị chính (đ)', moneyInput: true)"
+    },
+    {
+      "file": "lib/ui/catalog.dart",
+      "label": "Reason label outside text field",
+      "pattern": "field\\(\\s*reason,\\s*\\'Lý do sửa sai \\(ít nhất 3 từ\\)\\'\\s*\\)",
+      "replacement": "_correctionInput(reason, 'Lý do sửa sai (ít nhất 3 từ)', hintText: 'Ví dụ: Nhập nhầm đơn vị')"
+    },
+    {
+      "file": "lib/ui/catalog.dart",
+      "label": "Lot quantity label outside box",
+      "pattern": "TextField\\(\\s*controller:\\s*lotQuantities\\[lot\\['id'\\] as String\\]!,\\s*keyboardType:\\s*const TextInputType\\.numberWithOptions\\(decimal:\\s*true\\),\\s*decoration:\\s*const InputDecoration\\(\\s*labelText:\\s*'Số lượng thực tế theo đơn vị chính mới',\\s*hintText:\\s*'Nhập 0 nếu lô hiện đã hết hàng',\\s*\\),\\s*\\),",
+      "replacement": "_correctionInput(\n                      lotQuantities[lot['id'] as String]!,\n                      'Số lượng thực tế theo đơn vị chính mới',\n                      decimalNumber: true,\n                      hintText: 'Nhập 0 nếu lô hiện đã hết hàng',\n                    ),"
+    },
+    {
+      "file": "lib/ui/catalog.dart",
+      "label": "Correction dialog adapts height to mobile & keyboard",
+      "pattern": "content:\\s*SizedBox\\(\\s*width:\\s*640,\\s*child:\\s*SingleChildScrollView\\(",
+      "replacement": "content: ConstrainedBox(\n            constraints: BoxConstraints(maxWidth: 640, maxHeight: (MediaQuery.sizeOf(ctx).height - MediaQuery.viewInsetsOf(ctx).bottom) * .65),\n            child: SingleChildScrollView("
+    },
+    {
+      "file": "lib/ui/catalog.dart",
+      "label": "Checkbox left aligned and compact",
+      "pattern": "CheckboxListTile\\(\\s*contentPadding:\\s*EdgeInsets\\.zero,\\s*title:\\s*const Text\\(\\s*\\'Tôi đã đối chiếu phiếu nhập,",
+      "replacement": "CheckboxListTile(\n                    contentPadding: EdgeInsets.zero,\n                    controlAffinity: ListTileControlAffinity.leading,\n                    dense: true,\n                    visualDensity: VisualDensity.compact,\n                    title: const Text(\n                        'Tôi đã đối chiếu phiếu nhập,"
+    },
+    {
+      "file": "lib/ui/mobile_products.dart",
+      "label": "Smaller mobile product thumbnail",
+      "pattern": "SizedBox\\(width:\\s*74,\\s*height:\\s*84,\\s*child:\\s*ProductPicture\\(p\\)\\)",
+      "replacement": "SizedBox(width: 60, height: 68, child: ProductPicture(p))"
+    },
+    {
+      "file": "lib/ui/mobile_products.dart",
+      "label": "Mobile catalogue card shows only product, price, stock",
+      "pattern": "if \\(latestRecordedLotCost\\(p\\) != null\\)\\s*Text\\(\\s*'Vốn lô gần nhất \\$\\{money\\(latestRecordedLotCost\\(p\\)!\\)\\}',\\s*maxLines:\\s*1,\\s*overflow:\\s*TextOverflow\\.ellipsis,\\s*style:\\s*const TextStyle\\(\\s*fontSize:\\s*11,\\s*color:\\s*Color\\(0xFF805500\\),\\s*\\),\\s*\\),\\s*if \\(p\\.note\\.isNotEmpty\\)\\s*Text\\(\\s*'Lưu ý: \\$\\{p\\.note\\}',\\s*maxLines:\\s*1,\\s*overflow:\\s*TextOverflow\\.ellipsis,\\s*style:\\s*const TextStyle\\(\\s*fontSize:\\s*11,\\s*color:\\s*Color\\(0xFF657993\\),\\s*\\),\\s*\\),",
+      "replacement": "// More cost and note information stays reachable via the Details menu."
+    },
+    {
+      "file": "lib/ui/mobile_products.dart",
+      "label": "Preserve hidden mobile product details in popup",
+      "pattern": "Widget _tile",
+      "replacement": "// vlxd-mobile-details-v1: hide secondary facts, not functionality.\n  Future<void> _showDetails(BuildContext context, Product p) => safeDialog<void>(\n    context: context,\n    builder: (ctx) => AlertDialog(\n      title: Text(p.name),\n      content: SingleChildScrollView(\n        child: Column(\n          mainAxisSize: MainAxisSize.min,\n          crossAxisAlignment: CrossAxisAlignment.start,\n          children: [\n            Text('${p.code} • ${p.size} • ${p.supplier}'),\n            const SizedBox(height: 10),\n            Text('Giá bán: ${money(p.price)} / ${p.unit}'),\n            Text('Tồn khả dụng: ${area(p.available)} ${p.unit}'),\n            if (p.hasPackConversion) Text('Quy đổi: ${conversionHint(p)}'),\n            if (latestRecordedLotCost(p) != null)\n              Text('Vốn lô gần nhất: ${money(latestRecordedLotCost(p)!)} / ${p.unit}'),\n            if (p.note.isNotEmpty) ...[\n              const SizedBox(height: 8),\n              Text('Ghi chú: ${p.note}'),\n            ],\n          ],\n        ),\n      ),\n      actions: [\n        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng')),\n      ],\n    ),\n  );\n\n  Widget _tile"
+    },
+    {
+      "file": "lib/ui/mobile_products.dart",
+      "label": "More menu retains new Details & Admin correction",
+      "pattern": "if \\(action == 'edit'\\) \\{\\s*editProduct\\(context, original: p\\);\\s*\\} else if \\(action == 'barcode'\\)",
+      "replacement": "if (action == 'edit') {\n                      editProduct(context, original: p);\n                    } else if (action == 'details') {\n                      _showDetails(context, p);\n                    } else if (action == 'correct-unit') {\n                      correctReceivedUnitDialog(context, p);\n                    } else if (action == 'barcode')"
+    },
+    {
+      "file": "lib/ui/mobile_products.dart",
+      "label": "Mobile popup exposes correction and details actions",
+      "pattern": "itemBuilder:\\s*\\(context\\) => \\[\\s*if \\(p\\.active && !p\\.deleted && !p\\.archivedFromLists\\) \\.\\.\\.\\[",
+      "replacement": "itemBuilder: (context) => [\n                    const PopupMenuItem<String>(\n                      value: 'details',\n                      child: Text('Thông tin chi tiết / giá vốn / ghi chú'),\n                    ),\n                    if (p.active && !p.deleted && !p.archivedFromLists) ...[\n                      if (shop.actor?.canAdmin == true && p.lots.isNotEmpty)\n                        const PopupMenuItem<String>(\n                          value: 'correct-unit',\n                          child: Text('Đính chính đơn vị (Admin)'),\n                        ),"
+    },
+    {
+      "file": "lib/ui/operations.dart",
+      "label": "Warehouse mobile compact breakpoint",
+      "pattern": "final c = Get\\.find<ShopController>\\(\\);\\s*final needle = ShopData\\.normalizeProductText\\(query\\);",
+      "replacement": "final c = Get.find<ShopController>();\n    final compact = MediaQuery.sizeOf(context).width < 600;\n    final needle = ShopData.normalizeProductText(query);"
+    },
+    {
+      "file": "lib/ui/operations.dart",
+      "label": "Warehouse mobile hides redundant introductory text",
+      "pattern": "hint\\('Theo dõi tồn thực tế, lượng đang giữ và giá vốn từng lô\\.'\\),",
+      "replacement": "if (!compact) hint('Theo dõi tồn thực tế, lượng đang giữ và giá vốn từng lô.'),"
+    },
+    {
+      "file": "lib/ui/operations.dart",
+      "label": "Phone warehouse receive uses icon only",
+      "pattern": "OutlinedButton\\.icon\\(\\s*onPressed:\\s*\\(\\) => receiveStock\\(context, p\\),\\s*icon:\\s*const Icon\\(Icons\\.add_box_outlined\\),\\s*label:\\s*const Text\\('Nhập hàng'\\),\\s*\\),",
+      "replacement": "if (compact)\n                        IconButton.outlined(\n                          tooltip: 'Nhập hàng',\n                          onPressed: () => receiveStock(context, p),\n                          icon: const Icon(Icons.add_box_outlined),\n                        )\n                      else\n                        OutlinedButton.icon(\n                          onPressed: () => receiveStock(context, p),\n                          icon: const Icon(Icons.add_box_outlined),\n                          label: const Text('Nhập hàng'),\n                        ),"
+    },
+    {
+      "file": "lib/ui/operations.dart",
+      "label": "Phone warehouse audit uses icon only",
+      "pattern": "OutlinedButton\\.icon\\(\\s*onPressed:\\s*\\(\\) => inspectStock\\(context, p\\),\\s*icon:\\s*const Icon\\(Icons\\.fact_check_outlined\\),\\s*label:\\s*const Text\\('Kiểm kê / ảnh kho'\\),\\s*\\),",
+      "replacement": "if (compact)\n                        IconButton.outlined(\n                          tooltip: 'Kiểm kê / ảnh kho',\n                          onPressed: () => inspectStock(context, p),\n                          icon: const Icon(Icons.fact_check_outlined),\n                        )\n                      else\n                        OutlinedButton.icon(\n                          onPressed: () => inspectStock(context, p),\n                          icon: const Icon(Icons.fact_check_outlined),\n                          label: const Text('Kiểm kê / ảnh kho'),\n                        ),"
+    },
+    {
+      "file": "lib/ui/operations.dart",
+      "label": "Collapse recent stock movements on phone; keep access to 20 entries",
+      "pattern": "if \\(c\\.data\\.stockMoves\\.isNotEmpty\\)\\s*panel\\(",
+      "replacement": "if (c.data.stockMoves.isNotEmpty && compact)\n          panel(\n            ExpansionTile(\n              tilePadding: EdgeInsets.zero,\n              childrenPadding: EdgeInsets.zero,\n              title: Text('Biến động gần đây (${c.data.stockMoves.length})',\n                style: const TextStyle(fontWeight: FontWeight.w700)),\n              children: [\n                for (final m in c.data.stockMoves.take(20))\n                  ListTile(\n                    dense: true,\n                    contentPadding: EdgeInsets.zero,\n                    title: Text('${m['type']} • ${m['product']}'),\n                    subtitle: Text('${day(m['at'])} • ${area(m['area'])} ${c.data.products.where((p) => p.code == m['product']).firstOrNull?.unit ?? 'm²'}'),\n                  ),\n              ],\n            ),\n          ),\n        if (c.data.stockMoves.isNotEmpty && !compact)\n          panel("
+    },
+    {
+      "file": "lib/ui/debt.dart",
+      "label": "Mobile customer debt replaces 6-column table with scannable list",
+      "pattern": "_table\\(\\s*DataTable\\(\\s*showCheckboxColumn:\\s*false,",
+      "replacement": "if (MediaQuery.sizeOf(context).width < 600)\n          Column(\n            children: [\n              for (final customer in customers.skip(customerPage * 10).take(10))\n                ListTile(\n                  dense: true,\n                  selected: selected?['id'] == customer['id'],\n                  contentPadding: const EdgeInsets.symmetric(horizontal: 6),\n                  title: Text(customer['name'], maxLines: 1, overflow: TextOverflow.ellipsis,\n                    style: const TextStyle(fontWeight: FontWeight.w700)),\n                  subtitle: Text('${customer['phone']} • Còn nợ: ${money(c.data.debt(customer['id']))}',\n                    maxLines: 2, overflow: TextOverflow.ellipsis),\n                  trailing: PopupMenuButton<String>(\n                    tooltip: 'Thao tác khách hàng',\n                    onSelected: (action) {\n                      if (action == 'edit') {\n                        editCustomer(context, original: customer);\n                      } else if (action == 'delete' && !c.busy) {\n                        deleteCustomer(context, customer);\n                      }\n                    },\n                    itemBuilder: (_) => [\n                      const PopupMenuItem<String>(value: 'edit', child: Text('Sửa khách hàng')),\n                      PopupMenuItem<String>(value: 'delete', enabled: !c.busy,\n                        child: const Text('Xóa khách hàng')),\n                    ],\n                  ),\n                  onTap: () => setState(() => selectedId = customer['id']),\n                ),\n            ],\n          )\n        else\n          _table(\n          DataTable(\n            showCheckboxColumn: false,"
+    },
+    {
+      "file": "lib/ui/vlxd_theme.dart",
+      "label": "Narrow phone dialog margins without altering form logic",
+      "pattern": "dialogTheme:\\s*DialogThemeData\\(\\s*backgroundColor:\\s*Colors\\.white,",
+      "replacement": "dialogTheme: DialogThemeData(\n        insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),\n        backgroundColor: Colors.white,"
+    }
+  ]
+}

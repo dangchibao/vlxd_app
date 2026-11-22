@@ -84,40 +84,39 @@ void main() {
       },
     );
   }
-  testWidgets(
-    'Sales can view payroll but cannot create, edit, or archive it',
-    (tester) async {
-      Get.testMode = true;
-      final c = Get.put(ShopController(MemoryRepository(), ShopData.sample()))
-        ..enterDemo(Role.sales);
-      c.navigate(5);
-      await tester.pumpWidget(const BayHaiApp());
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(ChoiceChip, 'Lương nhân viên'));
-      await tester.pumpAndSettle();
+  testWidgets('Sales can view payroll but cannot create, edit, or archive it', (
+    tester,
+  ) async {
+    Get.testMode = true;
+    final c = Get.put(ShopController(MemoryRepository(), ShopData.sample()))
+      ..enterDemo(Role.sales);
+    c.navigate(5);
+    await tester.pumpWidget(const BayHaiApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Lương nhân viên'));
+    await tester.pumpAndSettle();
 
-      expect(find.text('Tạo kỳ lương'), findsNothing);
-      expect(find.byTooltip('Cài đặt lương'), findsNothing);
-      // find.byTooltip can match a RawTooltip descendant instead of
-      // IconButton. Restrict the finder to IconButton before reading widgets.
-      final iconButtons = tester.widgetList<IconButton>(
-        find.byType(IconButton),
-      ).toList();
-      final editButtons = iconButtons
-          .where((button) => button.tooltip == 'Sửa lương / ghi chi')
-          .toList();
-      final archiveButtons = iconButtons
-          .where((button) => button.tooltip == 'Xóa kỳ lương khỏi danh sách')
-          .toList();
-      expect(editButtons, isNotEmpty);
-      expect(archiveButtons, isNotEmpty);
-      for (final button in [...editButtons, ...archiveButtons]) {
-        expect(button.onPressed, isNull);
-      }
-      expect(c.actor!.role, Role.sales);
-      expect(tester.takeException(), isNull);
-    },
-  );
+    expect(find.text('Tạo kỳ lương'), findsNothing);
+    expect(find.byTooltip('Cài đặt lương'), findsNothing);
+    // find.byTooltip can match a RawTooltip descendant instead of
+    // IconButton. Restrict the finder to IconButton before reading widgets.
+    final iconButtons = tester
+        .widgetList<IconButton>(find.byType(IconButton))
+        .toList();
+    final editButtons = iconButtons
+        .where((button) => button.tooltip == 'Sửa lương / ghi chi')
+        .toList();
+    final archiveButtons = iconButtons
+        .where((button) => button.tooltip == 'Xóa kỳ lương khỏi danh sách')
+        .toList();
+    expect(editButtons, isNotEmpty);
+    expect(archiveButtons, isNotEmpty);
+    for (final button in [...editButtons, ...archiveButtons]) {
+      expect(button.onPressed, isNull);
+    }
+    expect(c.actor!.role, Role.sales);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'Collecting the remaining shipping charge clears the order and customer debt',

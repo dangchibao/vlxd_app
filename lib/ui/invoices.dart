@@ -24,6 +24,7 @@ class _InvoicesPageState extends State<InvoicesPage> {
   String period = 'Toàn bộ', sort = 'Mới nhất';
   DateTimeRange? range;
   int invoicePage = 0;
+  bool mobileFiltersExpanded = false;
 
   @override
   void dispose() {
@@ -252,8 +253,9 @@ class _InvoicesPageState extends State<InvoicesPage> {
                 ),
               },
             );
+      final compact = MediaQuery.sizeOf(context).width < 600;
       return ListView(
-        padding: const EdgeInsets.all(20),
+        padding: vlxdPagePadding(context),
         children: [
           titleText('Hóa đơn bán hàng'),
           const SizedBox(height: 8),
@@ -261,7 +263,19 @@ class _InvoicesPageState extends State<InvoicesPage> {
             'Lấy trực tiếp từ đơn đã bán • Bấm một hóa đơn để xem sản phẩm và in PDF',
           ),
           const SizedBox(height: 12),
-          filters(),
+          if (compact)
+            OutlinedButton.icon(
+              onPressed: () => setState(
+                () => mobileFiltersExpanded = !mobileFiltersExpanded,
+              ),
+              icon: Icon(
+                mobileFiltersExpanded ? Icons.expand_less : Icons.tune,
+              ),
+              label: Text(
+                mobileFiltersExpanded ? 'Ẩn bộ lọc' : 'Bộ lọc và sắp xếp',
+              ),
+            ),
+          if (!compact || mobileFiltersExpanded) filters(),
           if (!filter.valid)
             const Padding(
               padding: EdgeInsets.only(top: 12),
@@ -271,84 +285,174 @@ class _InvoicesPageState extends State<InvoicesPage> {
               ),
             ),
           const SizedBox(height: 16),
-          panel(
-            LayoutBuilder(
-              builder: (context, box) => SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minWidth: box.maxWidth),
-                  child: DataTable(
-                    showCheckboxColumn: false,
-                    horizontalMargin: 12,
-                    columnSpacing: 28,
-                    headingRowColor: const WidgetStatePropertyAll(
-                      Color(0xFFF0F4FA),
-                    ),
-                    columns: const [
-                      DataColumn(label: Text('Mã hóa đơn')),
-                      DataColumn(label: Text('Tên khách')),
-                      DataColumn(label: Text('Ngày bán')),
-                      DataColumn(label: Text('Tổng tiền'), numeric: true),
-                      DataColumn(label: Text('Đã trả'), numeric: true),
-                      DataColumn(label: Text('Còn nợ'), numeric: true),
-                      DataColumn(label: Text('Chi tiết')),
-                    ],
-                    rows: invoices
-                        .skip(
-                          math.min(
-                                invoicePage,
-                                math.max(0, (invoices.length - 1) ~/ 10),
-                              ) *
-                              10,
-                        )
-                        .take(10)
-                        .map(
-                          (o) => DataRow(
-                            onSelectChanged: (_) => showOrder(context, o),
-                            cells: [
-                              DataCell(
-                                Text(
-                                  o['status'] == 'Đã trả hàng' ? '${o['id']} • Đã trả hàng' : o['id'],
-                                  style: const TextStyle(
-                                    color: blue,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+          if (compact)
+            ...invoices
+                .skip(
+                  math.min(
+                        invoicePage,
+                        math.max(0, (invoices.length - 1) ~/ 10),
+                      ) *
+                      10,
+                )
+                .take(10)
+                .map(
+                  (invoice) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Card(
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
+                        title: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${invoice['id']}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: blue,
                                 ),
                               ),
-                              DataCell(Text(invoiceCustomer(c.data, o))),
-                              DataCell(Text(day(o['soldAt'] ?? o['at']))),
-                              DataCell(Text(money(o['total']))),
-                              DataCell(Text(money(ShopData.collected(o)))),
-                              DataCell(
+                            ),
+                            Text(
+                              money(invoice['total']),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              invoiceCustomer(c.data, invoice),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              day(invoice['soldAt'] ?? invoice['at']),
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            Text(
+                              'Đã trả ${money(ShopData.collected(invoice))}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            Row(
+                              children: [
+                                const Text(
+                                  'Còn nợ: ',
+                                  style: TextStyle(fontSize: 12),
+                                ),
                                 Text(
                                   money(
-                                    o['status'] == 'Đã trả hàng' ? 0 : (o['total'] as int) - ShopData.collected(o),
+                                    invoice['status'] == 'Đã trả hàng'
+                                        ? 0
+                                        : (invoice['total'] as int) -
+                                              ShopData.collected(invoice),
                                   ),
                                   style: const TextStyle(
+                                    fontSize: 12,
                                     fontWeight: FontWeight.w700,
+                                    color: Color(0xFF9D2B39),
                                   ),
                                 ),
-                              ),
-                              DataCell(
-                                IconButton(
-                                  tooltip: 'Xem chi tiết hóa đơn',
-                                  icon: const Icon(
-                                    Icons.visibility_outlined,
-                                    color: blue,
+                              ],
+                            ),
+                          ],
+                        ),
+                        onTap: () => showOrder(context, invoice),
+                      ),
+                    ),
+                  ),
+                ),
+          if (!compact)
+            panel(
+              LayoutBuilder(
+                builder: (context, box) => SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: box.maxWidth),
+                    child: DataTable(
+                      showCheckboxColumn: false,
+                      horizontalMargin: 12,
+                      columnSpacing: 28,
+                      headingRowColor: const WidgetStatePropertyAll(
+                        Color(0xFFF0F4FA),
+                      ),
+                      columns: const [
+                        DataColumn(label: Text('Mã hóa đơn')),
+                        DataColumn(label: Text('Tên khách')),
+                        DataColumn(label: Text('Ngày bán')),
+                        DataColumn(label: Text('Tổng tiền'), numeric: true),
+                        DataColumn(label: Text('Đã trả'), numeric: true),
+                        DataColumn(label: Text('Còn nợ'), numeric: true),
+                        DataColumn(label: Text('Chi tiết')),
+                      ],
+                      rows: invoices
+                          .skip(
+                            math.min(
+                                  invoicePage,
+                                  math.max(0, (invoices.length - 1) ~/ 10),
+                                ) *
+                                10,
+                          )
+                          .take(10)
+                          .map(
+                            (o) => DataRow(
+                              onSelectChanged: (_) => showOrder(context, o),
+                              cells: [
+                                DataCell(
+                                  Text(
+                                    o['status'] == 'Đã trả hàng'
+                                        ? '${o['id']} • Đã trả hàng'
+                                        : o['id'],
+                                    style: const TextStyle(
+                                      color: blue,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
-                                  onPressed: () => showOrder(context, o),
                                 ),
-                              ),
-                            ],
-                          ),
-                        )
-                        .toList(),
+                                DataCell(Text(invoiceCustomer(c.data, o))),
+                                DataCell(Text(day(o['soldAt'] ?? o['at']))),
+                                DataCell(Text(money(o['total']))),
+                                DataCell(Text(money(ShopData.collected(o)))),
+                                DataCell(
+                                  Text(
+                                    money(
+                                      o['status'] == 'Đã trả hàng'
+                                          ? 0
+                                          : (o['total'] as int) -
+                                                ShopData.collected(o),
+                                    ),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                DataCell(
+                                  IconButton(
+                                    tooltip: 'Xem chi tiết hóa đơn',
+                                    icon: const Icon(
+                                      Icons.visibility_outlined,
+                                      color: blue,
+                                    ),
+                                    onPressed: () => showOrder(context, o),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                          .toList(),
+                    ),
                   ),
                 ),
               ),
+              padding: const EdgeInsets.all(12),
             ),
-            padding: const EdgeInsets.all(12),
-          ),
           VlxdPager(
             total: invoices.length,
             page: math.min(

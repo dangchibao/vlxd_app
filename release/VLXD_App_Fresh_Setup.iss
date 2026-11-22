@@ -1,12 +1,12 @@
 ﻿[Setup]
 AppId=VLXD.App.Windows.Desktop
 AppName=VLXD App
-AppVersion=1.0.1
-AppVerName=VLXD App 1.0.1
+AppVersion=1.0.6
+AppVerName=VLXD App 1.0.6
 DefaultDirName={localappdata}\Programs\VLXD App
 DefaultGroupName=VLXD App
 OutputDir=D:\app\vlxd_app\release\installers
-OutputBaseFilename=VLXD_App_Setup_1.0.1
+OutputBaseFilename=VLXD_App_Setup_1.0.6
 PrivilegesRequired=lowest
 UsePreviousAppDir=yes
 UsePreviousGroup=yes

@@ -1,0 +1,6 @@
+{
+  "lib/domain/shop.dart": "d2536e7c2fc662509f0d693740fdcf82c535d77c1ca38f1243d5cfed252ff946",
+  "lib/ui/catalog.dart": "3db50ce6e4219edc4cbcb46821bd88069b443e0ab02559acefece1955b55794c",
+  "lib/controllers/shop_controller.dart": "4bba18cc84c17f5e6eeca5cf0663cfe1e28c3ba205fa736d7b498cbcb3fcb63f",
+  "lib/data/sync/outbox_repository.dart": "7241d2a2822cb7d1e5217e329727a79245fa5127074322839114a5dcf50e060f"
+}

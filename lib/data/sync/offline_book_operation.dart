@@ -13,6 +13,8 @@ class OfflineBookOperation {
   final int amount;
   final int? cost, ratio, expectedCollected;
   final String? unit;
+  // Absent in legacy pending receipts; preserve their exact payload bytes.
+  final String? secondaryUnit;
   final DateTime? date;
 
   const OfflineBookOperation({
@@ -25,6 +27,7 @@ class OfflineBookOperation {
     this.ratio,
     this.expectedCollected,
     this.unit,
+    this.secondaryUnit,
     this.date,
   });
 
@@ -43,6 +46,7 @@ class OfflineBookOperation {
       'cost': cost,
       'ratio': ratio,
       'unit': unit,
+      if (secondaryUnit != null) 'secondaryUnit': secondaryUnit,
       'date': date?.toIso8601String(),
     },
   });
@@ -65,6 +69,7 @@ class OfflineBookOperation {
       ratio: json['ratio'] as int?,
       expectedCollected: json['expectedCollected'] as int?,
       unit: json['unit'] as String?,
+      secondaryUnit: json['secondaryUnit'] as String?,
       date: json['date'] is String
           ? DateTime.parse(json['date'] as String)
           : null,
@@ -95,6 +100,9 @@ class OfflineBookOperation {
       if (!product.active ||
           product.ratio != ratio ||
           product.unit != unit ||
+          (secondaryUnit != null &&
+              (product.hasPackConversion ? product.secondaryUnit : '') !=
+                  secondaryUnit) ||
           cost == null ||
           date == null) {
         throw StateError(

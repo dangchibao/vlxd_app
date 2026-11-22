@@ -278,7 +278,7 @@ Future<void> confirmProduct(
         : NumberFormat('0.####', 'vi').format(suggested / p.quantityStep),
   );
   final note = TextEditingController(text: p.note);
-  var unit = p.hasPackConversion ? 'thùng' : p.unit;
+  var unit = p.packUnit;
   final existing = c.cart.any((l) => l.productId == p.id);
   await safeDialog<void>(
     context: context,
@@ -303,17 +303,37 @@ Future<void> confirmProduct(
                 titleText('${p.name} ${p.size}', size: 18),
                 hint('${p.code} • ${money(p.price)} / ${p.unit}'),
                 hint(
-                  'Còn ${area(p.available)} ${p.unit}${p.hasPackConversion ? ' • 1 thùng = ${area(p.ratio)} m²' : ''}',
+                  'Còn ${area(p.available)} ${p.unit}${p.hasPackConversion ? ' • ${conversionHint(p)}' : ''}',
                 ),
                 const SizedBox(height: 16),
                 if (p.hasPackConversion)
                   SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(value: 'thùng', label: Text('Theo thùng')),
-                      ButtonSegment(value: 'm²', label: Text('Theo m²')),
+                    segments: [
+                      ButtonSegment(
+                        value: p.secondaryUnit,
+                        label: Text('Theo ${p.secondaryUnit}'),
+                      ),
+                      ButtonSegment(
+                        value: p.unit,
+                        label: Text('Theo ${p.unit}'),
+                      ),
                     ],
                     selected: {unit},
-                    onSelectionChanged: (v) => set(() => unit = v.first),
+                    onSelectionChanged: (v) {
+                      final next = v.first;
+                      if (next == unit) return;
+                      final n = decimal(qty.text);
+                      if (n.isFinite && n > 0) {
+                        final oldFactor = p.factorForUnit(unit);
+                        final newFactor = p.factorForUnit(next);
+                        // Preserve the physical quantity when switching units.
+                        qty.text = NumberFormat(
+                          '0.##########',
+                          'vi',
+                        ).format(n * oldFactor / newFactor);
+                      }
+                      set(() => unit = next);
+                    },
                   ),
                 const SizedBox(height: 16),
                 field(qty, 'Số lượng ($unit)', number: true),
@@ -323,7 +343,7 @@ Future<void> confirmProduct(
                   valueListenable: qty,
                   builder: (context, value, _) {
                     final n = decimal(value.text);
-                    final scaled = n * (unit == 'thùng' ? p.ratio : 10000);
+                    final scaled = n * (p.factorForUnit(unit));
                     if (!scaled.isFinite ||
                         scaled <= 0 ||
                         scaled.round() <= 0) {
@@ -388,8 +408,9 @@ Future<void> confirmProduct(
               await _ensureCartRequestIsEditable(c);
               c.addCart(
                 p,
-                (n * (unit == 'thùng' ? p.ratio : 10000)).round(),
+                (n * (p.factorForUnit(unit))).round(),
                 note: note.text,
+                saleUnit: unit,
               );
               if (ctx.mounted) Navigator.pop(ctx);
             }),
@@ -765,7 +786,11 @@ class _CartPanelState extends State<CartPanel> {
                     ],
                   ),
                   hint(
-                    '${area(l.area)} ${p.unit}${p.hasPackConversion ? ' • ${NumberFormat('0.##', 'vi').format(l.area / p.ratio)} thùng' : ''}',
+                    p.isSecondaryUnit(
+                          l.saleUnit.isEmpty ? p.packUnit : l.saleUnit,
+                        )
+                        ? '${NumberFormat('0.####', 'vi').format(l.area / p.ratio)} ${p.secondaryUnit} • ${area(l.area)} ${p.unit}'
+                        : '${area(l.area)} ${p.unit}',
                   ),
                   if (l.note.isNotEmpty)
                     Text(
@@ -787,18 +812,28 @@ class _CartPanelState extends State<CartPanel> {
                         ),
                       ),
                       IconButton(
-                        tooltip: 'Bớt một ${p.packUnit}',
+                        tooltip:
+                            'Bớt một ${l.saleUnit.isEmpty ? p.packUnit : l.saleUnit}',
                         onPressed: c.busy || locked
                             ? null
                             : () {
                                 final i = c.cart.indexOf(l);
-                                if (l.area <= p.quantityStep) {
+                                final step =
+                                    p.isSecondaryUnit(
+                                      l.saleUnit.isEmpty
+                                          ? p.packUnit
+                                          : l.saleUnit,
+                                    )
+                                    ? p.ratio
+                                    : productUnitScale;
+                                if (l.area <= step) {
                                   c.cart.removeAt(i);
                                 } else {
                                   c.cart[i] = CartLine(
                                     p.id,
-                                    l.area - p.quantityStep,
+                                    l.area - step,
                                     note: l.note,
+                                    saleUnit: l.saleUnit,
                                   );
                                 }
                                 c.update();
@@ -806,10 +841,22 @@ class _CartPanelState extends State<CartPanel> {
                         icon: const Icon(Icons.remove_circle_outline),
                       ),
                       IconButton(
-                        tooltip: 'Thêm một ${p.packUnit}',
+                        tooltip:
+                            'Thêm một ${l.saleUnit.isEmpty ? p.packUnit : l.saleUnit}',
                         onPressed: c.busy || locked
                             ? null
-                            : () => c.addCart(p, p.quantityStep, note: ''),
+                            : () => c.addCart(
+                                p,
+                                p.isSecondaryUnit(
+                                      l.saleUnit.isEmpty
+                                          ? p.packUnit
+                                          : l.saleUnit,
+                                    )
+                                    ? p.ratio
+                                    : productUnitScale,
+                                note: '',
+                                saleUnit: l.saleUnit,
+                              ),
                         icon: const Icon(Icons.add_circle_outline),
                       ),
                     ],
@@ -1116,6 +1163,11 @@ class _CartPanelState extends State<CartPanel> {
                                       'unit': c.data
                                           .product(line.productId)
                                           .unit,
+                                      'ratio': c.data
+                                          .product(line.productId)
+                                          .ratio,
+                                      if (line.saleUnit.isNotEmpty)
+                                        'saleUnit': line.saleUnit,
                                       'area': line.area,
                                       'price': c.data
                                           .product(line.productId)

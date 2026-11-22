@@ -1,0 +1,66 @@
+        panel(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              titleText('Công việc đang mở', size: 18),
+              const SizedBox(height: 6),
+              hint('Ưu tiên những việc còn phải xử lý, không hiển thị cảnh báo bằng 0.'),
+              if (heldOrders > 0)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.shopping_bag_outlined, color: blue),
+                  title: Text('$heldOrders đơn đang giữ hàng'),
+                  subtitle: const Text('Kiểm tra và xử lý đơn chưa hoàn tất'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => c.navigate(9),
+                ),
+              if (activeTrips > 0)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.local_shipping_outlined, color: blue),
+                  title: Text('$activeTrips chuyến đang giao'),
+                  subtitle: const Text('Theo dõi giao hàng chưa hoàn thành'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => c.navigate(4),
+                ),
+              if (debtCustomers > 0)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.account_balance_wallet_outlined, color: blue),
+                  title: Text('$debtCustomers khách hàng còn công nợ'),
+                  subtitle: const Text('Mở sổ công nợ để đối chiếu và thu tiền'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => c.navigate(5),
+                ),
+              if (heldOrders == 0 && activeTrips == 0 && debtCustomers == 0)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text('Không có đơn giữ, chuyến giao hoặc công nợ tồn đọng.'),
+                ),
+              const Divider(),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.warehouse_outlined),
+                    label: const Text('Mở Kho / nhập hàng'),
+                    onPressed: () => c.navigate(3),
+                  ),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.local_shipping_outlined),
+                    label: const Text('Giao hàng'),
+                    onPressed: () => c.navigate(4),
+                  ),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.payments_outlined),
+                    label: const Text('Sổ công nợ'),
+                    onPressed: () => c.navigate(5),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),

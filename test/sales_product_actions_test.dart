@@ -58,7 +58,14 @@ void main() {
       expect(find.text('Thêm sản phẩm vào giỏ?'), findsNothing);
 
       // Thay đổi giá bán.
-      await tester.enterText(input('Giá bán đ/đơn vị'), '199000');
+      await tester.enterText(
+        find.byWidgetPredicate(
+          (w) =>
+              w is TextField &&
+              (w.decoration?.labelText?.startsWith('Giá bán đ/') ?? false),
+        ),
+        '199000',
+      );
 
       await tester.tap(find.text('Lưu thay đổi'));
       await tester.pumpAndSettle();

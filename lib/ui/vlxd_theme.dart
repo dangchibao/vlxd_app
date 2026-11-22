@@ -187,6 +187,7 @@ abstract final class VlxdUiTheme {
         decoration: BoxDecoration(borderRadius: BorderRadius.circular(radius)),
       ),
       dialogTheme: DialogThemeData(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),

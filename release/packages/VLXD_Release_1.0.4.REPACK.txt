@@ -1,0 +1,40 @@
+﻿VLXD App release 1.0.4 / build 5
+Recovery date: 2026-11-18 21:53:44
+Recovery: packaged existing build artifacts only; no Flutter rebuild.
+Windows Setup: D:\app\vlxd_app\release\installers\VLXD_App_Setup_1.0.4.exe
+SHA256: 931446A54467393D708966A1646F751334AE5603EEC4943DA58A5B2939CADFED
+Web/PWA ZIP: D:\app\vlxd_app\release\packages\VLXD_Web_PWA_1.0.4.zip
+SHA256: 9A508D4932124FBC7C30D2615D113315AC0F39AD1A6176BA48842747549C7552
+Combined ZIP: D:\app\vlxd_app\release\packages\VLXD_All_Platforms_1.0.4.zip
+Android APK: not included (this run did not build or package an APK).
+Firebase Hosting: NOT deployed by this repair script.
+NOTE: Check all pending offline orders before updating installed apps or deploying Hosting.
+NOTE: Do not remove the old Windows app or clear local/PWA storage before backup.
+
+-- Original release report (if any) --
+VLXD App RELEASE 1.0.4 / build 5
+Timestamp: 2026-11-18 21:49:39
+Git HEAD: 21196338637fc7db38160fc67f747d868e5afac3
+Source: D:\app\vlxd_app
+Windows AppId: VLXD.App.Windows.Desktop
+Windows Setup: D:\app\vlxd_app\release\installers\VLXD_App_Setup_1.0.4.exe
+Web/PWA ZIP: D:\app\vlxd_app\release\packages\VLXD_Web_PWA_1.0.4.zip
+Web/PWA manifest fingerprint: 6F0AEC1EFCABCE8E8005F3CC
+Android APK: 
+Firebase project: vlxd-bay-hai
+Hosting: https://vlxd-bay-hai.web.app/
+Hosting deploy requested: False
+Offline queues reviewed (user assertion): False
+
+VLXD_App_Setup_1.0.4.exe | SHA256 931446A54467393D708966A1646F751334AE5603EEC4943DA58A5B2939CADFED
+VLXD_Web_PWA_1.0.4.zip | SHA256 9A508D4932124FBC7C30D2615D113315AC0F39AD1A6176BA48842747549C7552
+
+
+IMPORTANT:
+- Windows Setup upgrades the same AppId. Installer is NOT auto-installed.
+- Web/PWA deployment does NOT happen automatically unless -DeployHosting is provided.
+- Web build enables production auto-sync as configured by the existing project.
+- Review pending/failed/uncertain transactions on ALL devices before deploying.
+- Do not clear PWA site storage/IndexedDB or delete local SQLite databases.
+- No firestore rules/functions/auth/database deployments are performed by this script.
+- iOS uses Safari's Add to Home Screen; this does not generate a native IPA.

@@ -188,7 +188,14 @@ class FirebaseCheckoutDispatcher {
             );
           }
 
-          lines.add(CartLine(line.productId, line.area, note: line.note));
+          lines.add(
+            CartLine(
+              line.productId,
+              line.area,
+              note: line.note,
+              saleUnit: line.saleUnit,
+            ),
+          );
         }
 
         return data.checkout(

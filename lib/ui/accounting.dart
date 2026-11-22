@@ -143,13 +143,19 @@ List<List<Object?>> _accPaymentRows(ShopData data) {
       rows.add([
         _accString(o['id']),
         _accString(returnedSale ? o['returnId'] : 'refund-${o['id']}'),
-        _accDate(returnedSale ? o['returnedAt'] :
-          (o['refundConfirmedAt'] ?? o['cancelledAt'])),
+        _accDate(
+          returnedSale
+              ? o['returnedAt']
+              : (o['refundConfirmedAt'] ?? o['cancelledAt']),
+        ),
         _accCustomer(data, order),
         -_accInt(o['refund']),
         returnedSale ? 'Hoàn tiền trả hàng' : 'Hoàn cọc giữ hàng',
-        _accString(returnedSale ? o['returnedBy'] :
-          (o['refundConfirmedBy'] ?? o['cancelledBy'])),
+        _accString(
+          returnedSale
+              ? o['returnedBy']
+              : (o['refundConfirmedBy'] ?? o['cancelledBy']),
+        ),
         _accString(returnedSale ? o['returnReason'] : o['cancelReason']),
       ]);
     }
@@ -177,7 +183,9 @@ List<List<Object?>> _accStockRows(ShopData data) => [
       p.reserved / 10000,
       p.available / 10000,
       p.price,
-      p.available <= 0 ? 'Hết hàng' : (p.minimum > 0 && p.available <= p.minimum ? 'Tồn thấp' : ''),
+      p.available <= 0
+          ? 'Hết hàng'
+          : (p.minimum > 0 && p.available <= p.minimum ? 'Tồn thấp' : ''),
     ],
 ];
 

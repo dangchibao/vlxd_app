@@ -112,7 +112,12 @@ class ShopShell extends StatelessWidget {
                   )
                 : Text(
                     '${StoreProfile.current.name} • ${destinations[c.page]}',
-                    style: const TextStyle(fontSize: 17),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
             actions: [
               IconButton(
@@ -215,6 +220,7 @@ class ShopShell extends StatelessWidget {
                               : 'Windows Firebase đang thử nghiệm • Sử dụng bản Web khi vận hành',
                           style: const TextStyle(
                             fontSize: 12,
+                            height: 1.25,
                             color: Color(0xFF885C13),
                           ),
                         ),

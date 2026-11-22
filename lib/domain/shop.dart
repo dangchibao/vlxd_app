@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'unit_rules.dart';
+
 import 'package:uuid/uuid.dart';
 
 typedef Json = Map<String, dynamic>;
@@ -35,6 +37,8 @@ class Actor {
 class Product {
   String id, code, name, size, supplier, note;
   String unitLabel;
+  // Empty on legacy records: ratio was historically '1 thùng = N base units'.
+  String secondaryUnitLabel;
   int price, ratio, minimum;
   bool active;
   bool deleted;
@@ -56,6 +60,7 @@ class Product {
     this.archivedFromLists = false,
     this.note = '',
     this.unitLabel = '',
+    this.secondaryUnitLabel = '',
     List<String>? images,
     List<Json>? lots,
   }) : images = images ?? [],
@@ -63,12 +68,33 @@ class Product {
   // Existing size field also identifies bulk material units, preserving the
   // deployed document schema. All legacy tile sizes remain square metres.
   bool get isBulk =>
-      (unitLabel.trim().isNotEmpty ? unitLabel.trim() : size.trim()) == 'm³';
-  String get unit =>
-      unitLabel.trim().isNotEmpty ? unitLabel.trim() : (isBulk ? 'm³' : 'm²');
-  bool get hasPackConversion => !isBulk && ratio > 0;
-  int get quantityStep => hasPackConversion ? ratio : 10000;
-  String get packUnit => hasPackConversion ? 'thùng' : unit;
+      canonicalProductUnit(unitLabel.trim().isNotEmpty ? unitLabel : size) ==
+      'm³';
+  String get unit => canonicalProductUnit(
+    unitLabel.trim().isNotEmpty ? unitLabel : (isBulk ? 'm³' : 'm²'),
+  );
+  // Generic secondary unit. Legacy non-bulk products with ratio retain 'thùng'.
+  // Legacy m³ products did not activate carton conversion automatically.
+  String get secondaryUnit => canonicalProductUnit(
+    secondaryUnitLabel.trim().isNotEmpty
+        ? secondaryUnitLabel
+        : (isBulk ? '' : 'thùng'),
+  );
+  bool get hasPackConversion =>
+      ratio > 0 && secondaryUnit.isNotEmpty && secondaryUnit != unit;
+  bool isSecondaryUnit(String selected) =>
+      hasPackConversion && selected == secondaryUnit;
+  int factorForUnit(String selected) =>
+      isSecondaryUnit(selected) ? ratio : productUnitScale;
+  int get quantityStep => hasPackConversion ? ratio : productUnitScale;
+  String get packUnit => hasPackConversion ? secondaryUnit : unit;
+  bool get showReverseConversion =>
+      hasPackConversion && ratio < productUnitScale;
+  String get conversionFromUnit => showReverseConversion ? unit : secondaryUnit;
+  String get conversionToUnit => showReverseConversion ? secondaryUnit : unit;
+  double get conversionDisplayFactor => showReverseConversion
+      ? productUnitScale / ratio
+      : ratio / productUnitScale;
   int get stock => lots.fold(0, (v, l) => v + (l['area'] as int));
   int get reserved => lots.fold(0, (v, l) => v + (l['reserved'] as int? ?? 0));
   int get available => stock - reserved;
@@ -83,6 +109,8 @@ class Product {
     'name': name,
     'size': size,
     if (unitLabel.trim().isNotEmpty) 'unit': unitLabel.trim(),
+    if (secondaryUnitLabel.trim().isNotEmpty && ratio > 0)
+      'secondaryUnit': canonicalProductUnit(secondaryUnitLabel),
     'supplier': supplier,
     if (note.isNotEmpty) 'note': note,
     'price': price,
@@ -100,6 +128,7 @@ class Product {
     name: j['name'],
     size: j['size'],
     unitLabel: j['unit'] as String? ?? '',
+    secondaryUnitLabel: j['secondaryUnit'] as String? ?? '',
     supplier: j['supplier'],
     note: j['note'] as String? ?? '',
     price: j['price'],
@@ -117,7 +146,15 @@ class CartLine {
   final String productId;
   final int area;
   final String note;
-  const CartLine(this.productId, this.area, {this.note = ''});
+
+  /// Unit chosen for this sale line. Empty denotes a legacy/base-unit line.
+  final String saleUnit;
+  const CartLine(
+    this.productId,
+    this.area, {
+    this.note = '',
+    this.saleUnit = '',
+  });
 }
 
 String mergeLineNotes(Iterable<String> notes) =>
@@ -200,13 +237,17 @@ class ShopData {
   // Normalized for searching and exact duplicate checking (including archived items).
   // Intentionally keep product identity/ID independent from the human-readable code.
   static String normalizeProductText(String value) {
-    var text = value.trim().toLowerCase().replaceAllMapped(
-      RegExp(r'(\d)\s*[x×]\s*(\d)'),
-      (match) => '${match[1]}x${match[2]}',
-    ).replaceAllMapped(
-      RegExp(r'(\d)\s+(kg|g|mm|cm|ml|lit|l)\b'),
-      (match) => '${match[1]}${match[2]}',
-    );
+    var text = value
+        .trim()
+        .toLowerCase()
+        .replaceAllMapped(
+          RegExp(r'(\d)\s*[x×]\s*(\d)'),
+          (match) => '${match[1]}x${match[2]}',
+        )
+        .replaceAllMapped(
+          RegExp(r'(\d)\s+(kg|g|mm|cm|ml|lit|l)\b'),
+          (match) => '${match[1]}${match[2]}',
+        );
     const accented = [
       'àáạảãâầấậẩẫăằắặẳẵ',
       'èéẹẻẽêềếệểễ',
@@ -229,7 +270,10 @@ class ShopData {
     final used = products.map((p) => p.code.toUpperCase()).toSet();
     var number = 1;
     for (final p in products) {
-      final match = RegExp(r'^SP(\d+)$', caseSensitive: false).firstMatch(p.code);
+      final match = RegExp(
+        r'^SP(\d+)$',
+        caseSensitive: false,
+      ).firstMatch(p.code);
       if (match != null) {
         final candidate = int.tryParse(match.group(1) ?? '') ?? 0;
         if (candidate >= number) number = candidate + 1;
@@ -243,11 +287,14 @@ class ShopData {
 
   bool canDeleteUnusedProduct(String id) {
     final p = product(id);
-    if (p.deleted || p.lots.isNotEmpty || p.stock != 0 || p.reserved != 0) return false;
+    if (p.deleted || p.lots.isNotEmpty || p.stock != 0 || p.reserved != 0) {
+      return false;
+    }
     // Be conservative: a product with any stock movement/order/delivery/reference
     // is not eligible for hard deletion, even if its stock is currently zero.
-    bool references(List<Json> rows) => rows.any((row) =>
-        jsonEncode(row).contains(id) || jsonEncode(row).contains(p.code));
+    bool references(List<Json> rows) => rows.any(
+      (row) => jsonEncode(row).contains(id) || jsonEncode(row).contains(p.code),
+    );
     return !references(orders) &&
         !references(deliveries) &&
         !references(stockMoves);
@@ -266,8 +313,12 @@ class ShopData {
     // explicitly reject physical document deletion. No inventory is touched.
     p.active = false;
     p.deleted = true;
-    log(actor, 'Xóa sản phẩm chưa sử dụng', p.code,
-        'Ẩn vĩnh viễn khỏi danh sách; giữ bản ghi kỹ thuật để an toàn đồng bộ.');
+    log(
+      actor,
+      'Xóa sản phẩm chưa sử dụng',
+      p.code,
+      'Ẩn vĩnh viễn khỏi danh sách; giữ bản ghi kỹ thuật để an toàn đồng bộ.',
+    );
   }
 
   // An archived item is NOT deleted: orders, lot history and movements remain.
@@ -276,15 +327,22 @@ class ShopData {
   void archiveDiscontinuedProduct(String id, Actor actor) {
     actor.requireAdmin();
     final p = product(id);
-    if (p.deleted || p.archivedFromLists || p.active ||
-        p.stock != 0 || p.reserved != 0) {
+    if (p.deleted ||
+        p.archivedFromLists ||
+        p.active ||
+        p.stock != 0 ||
+        p.reserved != 0) {
       throw StateError(
         'Chỉ ẩn được sản phẩm đã ngừng kinh doanh, tồn kho và giữ hàng đều bằng 0.',
       );
     }
     p.archivedFromLists = true;
-    log(actor, 'Ẩn sản phẩm hết tồn', p.code,
-        'Ẩn khỏi Hàng hóa và Kho; giữ mã, lô, kiểm kê và lịch sử giao dịch.');
+    log(
+      actor,
+      'Ẩn sản phẩm hết tồn',
+      p.code,
+      'Ẩn khỏi Hàng hóa và Kho; giữ mã, lô, kiểm kê và lịch sử giao dịch.',
+    );
   }
 
   void unarchiveDiscontinuedProduct(String id, Actor actor) {
@@ -294,8 +352,12 @@ class ShopData {
       throw StateError('Sản phẩm không ở trạng thái đã ẩn.');
     }
     p.archivedFromLists = false;
-    log(actor, 'Khôi phục sản phẩm đã ẩn', p.code,
-        'Hiển thị lại trong danh sách ngừng kinh doanh và Kho.');
+    log(
+      actor,
+      'Khôi phục sản phẩm đã ẩn',
+      p.code,
+      'Hiển thị lại trong danh sách ngừng kinh doanh và Kho.',
+    );
   }
 
   // A mistaken unused-product deletion must not permanently reserve a new
@@ -305,13 +367,19 @@ class ShopData {
     final p = product(id);
     if (!p.deleted) throw StateError('Sản phẩm không ở trạng thái đã xóa.');
     if (p.stock != 0 || p.reserved != 0) {
-      throw StateError('Sản phẩm xóa nhầm có tồn: cần đối chiếu trước khi khôi phục.');
+      throw StateError(
+        'Sản phẩm xóa nhầm có tồn: cần đối chiếu trước khi khôi phục.',
+      );
     }
     p.deleted = false;
     p.archivedFromLists = false;
     p.active = true;
-    log(actor, 'Khôi phục sản phẩm xóa nhầm', p.code,
-        'Giữ nguyên mã SKU và định danh sản phẩm.');
+    log(
+      actor,
+      'Khôi phục sản phẩm xóa nhầm',
+      p.code,
+      'Giữ nguyên mã SKU và định danh sản phẩm.',
+    );
   }
 
   bool hasProductHistory(Product p) {
@@ -335,38 +403,101 @@ class ShopData {
     final p = product(id);
     if (p.deleted) throw StateError('Sản phẩm đã xóa khỏi danh sách.');
     if (p.archivedFromLists) {
-      throw StateError('Hãy khôi phục sản phẩm đã ẩn trước khi kinh doanh lại.');
+      throw StateError(
+        'Hãy khôi phục sản phẩm đã ẩn trước khi kinh doanh lại.',
+      );
     }
     if (p.active) return;
     p.active = true;
-    log(actor, 'Kinh doanh lại', p.code,
-        'Khôi phục sản phẩm cũ, giữ nguyên mã và các lô hàng.');
+    log(
+      actor,
+      'Kinh doanh lại',
+      p.code,
+      'Khôi phục sản phẩm cũ, giữ nguyên mã và các lô hàng.',
+    );
   }
 
   void saveProduct(Product p, Actor actor, {Product? expected}) {
     actor.requireAccess();
+    // Firestore transactions read the freshest version for every retry.
+    // Reconcile only editable product fields; stock lots may have changed
+    // independently through sales or receiving on another device.
+    final current = expected == null ? null : product(p.id);
+    final editedLots =
+        expected != null && jsonEncode(p.lots) != jsonEncode(expected.lots);
     // Lock the visible SKU once it has been written to any stock/order ledger.
     // Existing movements reference the SKU string, not just the product ID.
-    if (expected != null && p.code != expected.code &&
-        hasProductHistory(expected)) {
-      throw StateError('Mã SKU đã có chứng từ nhập/xuất/bán nên không thể đổi. '
-          'Hãy giữ mã cũ để bảo toàn lịch sử kho và hóa đơn.');
+    if (expected != null &&
+        p.code != expected.code &&
+        hasProductHistory(current!)) {
+      throw StateError(
+        'Mã SKU đã có chứng từ nhập/xuất/bán nên không thể đổi. '
+        'Hãy giữ mã cũ để bảo toàn lịch sử kho và hóa đơn.',
+      );
     }
     // Never reinterpret historical stock quantities in a new unit.
     // The old check only ran when p.unitLabel was empty and missed BAO -> CÂY.
-    if (expected != null && expected.unit.toLowerCase().trim() != p.unit.toLowerCase().trim() &&
-        (expected.lots.isNotEmpty ||
-            orders.any((o) => (o['lines'] as List).any((l) => l['productId'] == p.id)) ||
+    if (expected != null &&
+        expected.unit.toLowerCase().trim() != p.unit.toLowerCase().trim() &&
+        (current!.lots.isNotEmpty ||
+            orders.any(
+              (o) => (o['lines'] as List).any((l) => l['productId'] == p.id),
+            ) ||
             stockMoves.any((m) => m['product'] == expected.code))) {
       throw StateError(
         'Không được đổi đơn vị khi sản phẩm có lô hoặc lịch sử nhập/xuất/bán. '
         'Dùng quy trình chuyển đổi có chứng từ, không tự đổi số tồn.',
       );
     }
+    // A configured conversion used in historical documents must not be silently
+    // rewritten. An unused product may change it. Adding a NEW conversion to
+    // a previously base-only product does not reinterpret historic quantities.
     if (expected != null &&
-        jsonEncode(product(p.id).toJson()) != jsonEncode(expected.toJson())) {
+        expected.hasPackConversion &&
+        hasProductHistory(current!) &&
+        (expected.ratio != p.ratio ||
+            expected.secondaryUnit != p.secondaryUnit)) {
       throw StateError(
-        'Sản phẩm hoặc tồn kho vừa được máy khác cập nhật. Đóng và mở lại thông tin trước khi sửa.',
+        'Sản phẩm đã phát sinh chứng từ với đơn vị quy đổi cũ. '
+        'Không đổi hệ số hoặc tên đơn vị phụ trực tiếp; '
+        'hãy dùng quy trình chuyển đổi có chứng từ.',
+      );
+    }
+    if (expected != null) {
+      // A concurrent edit of name, price, images, unit or status must NEVER
+      // be silently overwritten by an editor opened on a stale device.
+      final serverDetails = Map<String, dynamic>.from(current!.toJson())
+        ..remove('lots');
+      final openedDetails = Map<String, dynamic>.from(expected.toJson())
+        ..remove('lots');
+      if (jsonEncode(serverDetails) != jsonEncode(openedDetails)) {
+        throw StateError(
+          'Thông tin hoặc ảnh sản phẩm đã được máy khác sửa. '
+          'Đóng và mở lại sản phẩm để kiểm tra trước khi lưu.',
+        );
+      }
+      // The lot-date editor is a separate action: reject competing lot edits.
+      // Plain product/photograph edits should keep live stock, not restore
+      // the old stock snapshot captured when the dialog opened.
+      if (editedLots && jsonEncode(current.lots) != jsonEncode(expected.lots)) {
+        throw StateError(
+          'Lô hàng hoặc tồn kho đã thay đổi trong khi sửa ngày nhập. '
+          'Đóng và mở lại sản phẩm rồi kiểm tra lô trước khi lưu.',
+        );
+      }
+      if (!editedLots &&
+          jsonEncode(p.toJson()..remove('lots')) ==
+              jsonEncode(expected.toJson()..remove('lots')) &&
+          jsonEncode(current.lots) != jsonEncode(expected.lots)) {
+        // Keep the existing guard for a stale *no-op* Save action.
+        throw StateError(
+          'Tồn kho vừa thay đổi. Bạn chưa sửa thông tin sản phẩm; '
+          'hãy mở lại để xem số lượng mới.',
+        );
+      }
+    } else if (products.any((existing) => existing.id == p.id)) {
+      throw StateError(
+        'Mã định danh sản phẩm đã tồn tại. Hãy tải lại danh sách.',
       );
     }
     if (p.name.trim().isEmpty ||
@@ -375,6 +506,11 @@ class ShopData {
         p.price > 1000000000 ||
         p.ratio < 0 ||
         p.ratio > 100000000 ||
+        (p.ratio > 0 &&
+            !(p.isBulk && p.secondaryUnitLabel.trim().isEmpty) &&
+            (p.secondaryUnit.isEmpty ||
+                p.secondaryUnit == p.unit ||
+                p.secondaryUnit.length > 40)) ||
         p.minimum < 0 ||
         p.note.length > 1000 ||
         p.images.length > 11) {
@@ -389,33 +525,299 @@ class ShopData {
     }
     // Prevent two identities for the same name, unit and size, even when one
     // item is archived. Different units/sizes can legitimately be different.
-    final sameProduct = products.where((x) =>
-        x.id != p.id &&
-        normalizeProductText(x.name) == normalizeProductText(p.name) &&
-        normalizeProductText(x.unit) == normalizeProductText(p.unit) &&
-        normalizeProductText(x.size) == normalizeProductText(p.size));
+    final sameProduct = products.where(
+      (x) =>
+          x.id != p.id &&
+          normalizeProductText(x.name) == normalizeProductText(p.name) &&
+          normalizeProductText(x.unit) == normalizeProductText(p.unit) &&
+          normalizeProductText(x.size) == normalizeProductText(p.size),
+    );
     if (sameProduct.isNotEmpty) {
       final existing = sameProduct.first;
       throw StateError(
         'Sản phẩm tương tự đã có: ${existing.name} '
-        '(mã ${existing.code}, ${existing.deleted ? 'đã xóa mềm' : existing.active ? 'đang bán' : 'ngừng kinh doanh'}). '
+        '(mã ${existing.code}, ${existing.deleted
+            ? 'đã xóa mềm'
+            : existing.active
+            ? 'đang bán'
+            : 'ngừng kinh doanh'}). '
         'Hãy tìm và sửa hoặc khôi phục sản phẩm cũ; không tạo mã mới.',
       );
+    }
+    final merged = Product.fromJson(p.toJson());
+    if (expected != null && !editedLots) {
+      // No stock quantity, reserved count, cost, batch ID or lot number from
+      // an older modal may overwrite the transaction's live inventory state.
+      merged.lots = current!.lots;
     }
     final index = products.indexWhere((x) => x.id == p.id);
     final before = index < 0
         ? 'Mới'
         : jsonEncode(products[index].toJson()..remove('images'));
     if (index < 0) {
-      products.add(p);
+      products.add(merged);
     } else {
-      products[index] = p;
+      products[index] = merged;
     }
     log(
       actor,
       index < 0 ? 'Tạo sản phẩm' : 'Sửa sản phẩm',
+      merged.code,
+      '$before → ${jsonEncode(merged.toJson()..remove('images'))}',
+    );
+  }
+
+  /// Administrator-only correction for receipts entered under a wrong base unit.
+  /// This is intentionally narrower than changing units on products with trades.
+  /// No prior ledger is deleted: append corrective entries and an audit record.
+  void correctReceivedProductUnit({
+    required String productId,
+    required String expectedProductJson,
+    required String newUnit,
+    required String secondaryUnit,
+    required int newRatio,
+    required int newSalePrice,
+    required Map<String, int> actualLotQuantities,
+    required String reason,
+    required Actor actor,
+  }) {
+    actor.requireAdmin();
+    final p = product(productId);
+    final before = p.toJson();
+    if (jsonEncode(before) != expectedProductJson) {
+      throw StateError(
+        'Sản phẩm/lô hàng đã thay đổi. Hãy mở lại phiếu đính chính.',
+      );
+    }
+    final oldUnit = p.unit;
+    final normalizedUnit = canonicalProductUnit(newUnit);
+    final normalizedSecondary = canonicalProductUnit(secondaryUnit);
+    final explanation = reason.trim();
+    if (p.deleted ||
+        p.archivedFromLists ||
+        normalizedUnit.isEmpty ||
+        normalizedUnit.length > 40 ||
+        normalizedUnit == oldUnit ||
+        explanation
+                .split(RegExp(r'\s+'))
+                .where((part) => part.isNotEmpty)
+                .length <
+            3 ||
+        newSalePrice <= 0 ||
+        newSalePrice > 1000000000 ||
+        newRatio < 0 ||
+        newRatio > 100000000 ||
+        (newRatio == 0 && normalizedSecondary.isNotEmpty) ||
+        (newRatio > 0 &&
+            (normalizedSecondary.isEmpty ||
+                normalizedSecondary == normalizedUnit ||
+                normalizedSecondary.length > 40))) {
+      throw ArgumentError(
+        'Đơn vị mới, giá bán, quy đổi hoặc lý do không hợp lệ.',
+      );
+    }
+    if (p.lots.isEmpty || p.reserved != 0) {
+      throw StateError(
+        'Chỉ đính chính sản phẩm đã nhập kho và không giữ hàng.',
+      );
+    }
+    if (orders.any(
+          (o) => (o['lines'] as List).any((raw) {
+            final line = Json.from(raw as Map);
+            return line['productId'] == p.id || line['code'] == p.code;
+          }),
+        ) ||
+        deliveries.any((d) => jsonEncode(d).contains(p.id))) {
+      throw StateError(
+        'Sản phẩm đã có đơn bán/giao. Cần chứng từ điều chỉnh riêng.',
+      );
+    }
+    // Zero-stock exception: change ONLY the unit used for future receipts.
+    // Never revalue historical sales/receipts or create inventory from zero.
+    // Legacy zero lots may lack a receipt, so do not require an intact inbound
+    // receipt here. Block any sale/delivery above and any nonreceipt/noncount
+    // stock movement below; store the original lot metadata in the audit.
+    final zeroLots = p.lots.every(
+      (lot) => lot['area'] == 0 && (lot['reserved'] as int? ?? 0) == 0,
+    );
+    if (zeroLots) {
+      if (p.lots.any((lot) => lot['unitCorrection'] != null)) {
+        throw StateError(
+          'Sản phẩm đã được đính chính trước đây. Cần đối chiếu lịch sử.',
+        );
+      }
+      if (actualLotQuantities.length != p.lots.length ||
+          p.lots.any((lot) {
+            final id = lot['id'];
+            return id is! String ||
+                !actualLotQuantities.containsKey(id) ||
+                actualLotQuantities[id] != 0;
+          })) {
+        throw ArgumentError(
+          'Lô đã hết hàng phải ghi chính xác 0 theo đơn vị mới.',
+        );
+      }
+      final previousMoves = stockMoves.where(
+        (m) => m['productId'] == p.id || m['product'] == p.code,
+      );
+      if (previousMoves.any(
+        (m) => m['type'] != 'Nhập kho' && m['type'] != 'Kiểm kê',
+      )) {
+        throw StateError(
+          'Có giao dịch khác ngoài nhập/kiểm kê; cần đối chiếu riêng.',
+        );
+      }
+      final time = DateTime.now().toUtc().toIso8601String();
+      for (final lot in p.lots) {
+        lot['unitCorrection'] = {
+          'oldUnit': oldUnit,
+          'oldQuantity': 0,
+          'oldUnitCost': lot['cost'],
+          'oldInitialArea': lot['initialArea'],
+          'newUnit': normalizedUnit,
+          'actor': actor.id,
+          'correctedAt': time,
+          'reason': explanation,
+        };
+        // Zero current stock means zero carried inventory value. Keep the old
+        // cost in the immutable-style correction metadata for audit only.
+        lot['initialArea'] = 0;
+        lot['cost'] = 0;
+        lot['ratio'] = newRatio;
+      }
+      stockMoves.insert(0, {
+        'id': const Uuid().v4(),
+        'product': p.code,
+        'productId': p.id,
+        'type': 'Đính chính đơn vị khi hết tồn',
+        'area': 0,
+        'oldUnit': oldUnit,
+        'newUnit': normalizedUnit,
+        'actor': actor.id,
+        'at': time,
+        'reason': explanation,
+      });
+      p.unitLabel = normalizedUnit;
+      p.secondaryUnitLabel = normalizedSecondary;
+      p.ratio = newRatio;
+      p.price = newSalePrice;
+      p.minimum = 0;
+      log(
+        actor,
+        'Đính chính đơn vị khi hết tồn',
+        p.code,
+        'Đổi $oldUnit → $normalizedUnit khi tất cả lô đã tồn 0. '
+            'Không tăng tồn, không viết lại phiếu nhập. '
+            'Lý do: $explanation. Dữ liệu cũ: ${jsonEncode(before..remove('images'))}',
+      );
+      return;
+    }
+    // Match every movement to an original receipt; any other stock movement
+    // (including a previous unit correction) requires manual reconciliation.
+    final moves = stockMoves
+        .where((m) => m['productId'] == p.id || m['product'] == p.code)
+        .toList();
+    if (moves.length != p.lots.length ||
+        moves.any((m) => m['type'] != 'Nhập kho') ||
+        actualLotQuantities.length != p.lots.length) {
+      throw StateError(
+        'Kho đã có giao dịch khác hoặc phiếu nhập thiếu; không thể tự đính chính.',
+      );
+    }
+    for (final lot in p.lots) {
+      final id = lot['id'] as String?;
+      final originalQuantity = lot['initialArea'];
+      final oldCost = lot['cost'];
+      if (id == null ||
+          id.isEmpty ||
+          originalQuantity is! int ||
+          originalQuantity <= 0 ||
+          lot['area'] != originalQuantity ||
+          (lot['reserved'] as int? ?? 0) != 0 ||
+          oldCost is! int ||
+          oldCost < 0 ||
+          moves
+                  .where((m) => m['lot'] == id && m['area'] == originalQuantity)
+                  .length !=
+              1 ||
+          !actualLotQuantities.containsKey(id)) {
+        throw StateError(
+          'Lô ${id ?? '(trống)'} không phải phiếu nhập nguyên vẹn.',
+        );
+      }
+      final correctedQuantity = actualLotQuantities[id]!;
+      if (correctedQuantity <= 0 || correctedQuantity > 10000000000) {
+        throw ArgumentError('Số lượng thực của lô $id không hợp lệ.');
+      }
+      // Preserve monetary cost of each original receipt. Lot unit costs are
+      // stored as whole VND, so the nearest-VND division may have rounding.
+      final totalCost = lineMoney(originalQuantity, oldCost);
+      final correctedCost =
+          (BigInt.from(totalCost) * BigInt.from(productUnitScale) +
+              BigInt.from(correctedQuantity ~/ 2)) ~/
+          BigInt.from(correctedQuantity);
+      if (correctedCost < BigInt.zero ||
+          correctedCost > BigInt.from(1000000000)) {
+        throw StateError('Giá vốn quy đổi lô $id vượt giới hạn.');
+      }
+    }
+    final time = DateTime.now().toUtc().toIso8601String();
+    for (final lot in p.lots) {
+      final id = lot['id'] as String;
+      final oldQuantity = lot['area'] as int;
+      final oldCost = lot['cost'] as int;
+      final correctedQuantity = actualLotQuantities[id]!;
+      final totalCost = lineMoney(oldQuantity, oldCost);
+      final correctedCost =
+          ((BigInt.from(totalCost) * BigInt.from(productUnitScale) +
+                      BigInt.from(correctedQuantity ~/ 2)) ~/
+                  BigInt.from(correctedQuantity))
+              .toInt();
+      lot['area'] = correctedQuantity;
+      lot['initialArea'] = correctedQuantity;
+      lot['cost'] = correctedCost;
+      lot['ratio'] = newRatio;
+      lot['unitCorrection'] = {
+        'oldUnit': oldUnit,
+        'oldQuantity': oldQuantity,
+        'oldUnitCost': oldCost,
+        'newUnit': normalizedUnit,
+        'correctedAt': time,
+        'actor': actor.id,
+        'reason': explanation,
+      };
+      stockMoves.insert(0, {
+        'id': const Uuid().v4(),
+        'product': p.code,
+        'productId': p.id,
+        'lot': id,
+        'type': 'Đính chính đơn vị nhập nhầm',
+        'area': correctedQuantity - oldQuantity,
+        'oldQuantity': oldQuantity,
+        'newQuantity': correctedQuantity,
+        'oldUnit': oldUnit,
+        'newUnit': normalizedUnit,
+        'oldUnitCost': oldCost,
+        'newUnitCost': correctedCost,
+        'actor': actor.id,
+        'at': time,
+        'reason': explanation,
+      });
+    }
+    p.unitLabel = normalizedUnit;
+    p.secondaryUnitLabel = normalizedSecondary;
+    p.ratio = newRatio;
+    p.price = newSalePrice;
+    // Threshold was in the original unit; never reinterpret it silently.
+    p.minimum = 0;
+    log(
+      actor,
+      'Đính chính đơn vị nhập nhầm',
       p.code,
-      '$before → ${jsonEncode(p.toJson()..remove('images'))}',
+      'Đổi $oldUnit → $normalizedUnit sau nhập kho (chưa bán/xuất/giữ). '
+          'Cũ: ${jsonEncode(before..remove('images'))}; '
+          'Mới: ${jsonEncode(p.toJson()..remove('images'))}. '
+          'Lý do: $explanation. Tổng vốn mỗi lô được bảo toàn trong giới hạn làm tròn.',
     );
   }
 
@@ -442,14 +844,20 @@ class ShopData {
     var assigned = 0;
     for (final lot in p.lots) {
       if (lot['lotNumber'] is int && (lot['lotNumber'] as int) > 0) continue;
-      while (used.contains(next)) { next++; }
+      while (used.contains(next)) {
+        next++;
+      }
       lot['lotNumber'] = next;
       used.add(next);
       assigned++;
     }
     if (assigned > 0) {
-      log(actor, 'Đánh số lô cũ', p.code,
-          'Đã cấp số cố định cho $assigned lô, không thay UUID gốc.');
+      log(
+        actor,
+        'Đánh số lô cũ',
+        p.code,
+        'Đã cấp số cố định cho $assigned lô, không thay UUID gốc.',
+      );
     }
   }
 
@@ -473,13 +881,17 @@ class ShopData {
     }
     final p = product(id);
     if (lotId.trim().isEmpty || p.lots.any((l) => l['id'] == lotId)) {
-      throw StateError('Mã định danh lô trống hoặc đã tồn tại. '
-          'Không nhập trùng phiếu; hãy kiểm tra lịch sử nhập.');
+      throw StateError(
+        'Mã định danh lô trống hoặc đã tồn tại. '
+        'Không nhập trùng phiếu; hãy kiểm tra lịch sử nhập.',
+      );
     }
     final assigned = p.lots.map((l) => l['lotNumber']).whereType<int>();
-    final nextLotNumber = assigned.isEmpty ? p.lots.length + 1 :
-        (assigned.reduce(max) + 1 > p.lots.length + 1
-            ? assigned.reduce(max) + 1 : p.lots.length + 1);
+    final nextLotNumber = assigned.isEmpty
+        ? p.lots.length + 1
+        : (assigned.reduce(max) + 1 > p.lots.length + 1
+              ? assigned.reduce(max) + 1
+              : p.lots.length + 1);
     p.lots.add({
       'id': lotId,
       'lotNumber': nextLotNumber,
@@ -545,6 +957,14 @@ class ShopData {
           'Số lượng không hợp lệ hoặc vượt giới hạn một phiếu.',
         );
       }
+      final saleProduct = product(line.productId);
+      if (line.saleUnit.isNotEmpty &&
+          line.saleUnit != saleProduct.unit &&
+          !saleProduct.isSecondaryUnit(line.saleUnit)) {
+        throw StateError(
+          'Đơn vị bán không còn phù hợp với ${saleProduct.name}.',
+        );
+      }
       quantities.update(
         line.productId,
         (v) => v + line.area,
@@ -565,12 +985,15 @@ class ShopData {
     }
     // Until an independent remote approval workflow exists, only the owner
     // may perform an exception checkout. A text reason is not authorization.
-    if (quantities.entries.any((entry) =>
-        entry.value > product(entry.key).available)) {
+    if (quantities.entries.any(
+      (entry) => entry.value > product(entry.key).available,
+    )) {
       actor.requireAdmin();
       if (negativeReason.trim().length < 5) {
-        throw StateError('Bán vượt tồn cần chủ cửa hàng xác nhận '
-            'và ghi lý do ít nhất 5 ký tự.');
+        throw StateError(
+          'Bán vượt tồn cần chủ cửa hàng xác nhận '
+          'và ghi lý do ít nhất 5 ký tự.',
+        );
       }
     }
     if (discount < 0 || discount > subtotal) {
@@ -592,7 +1015,9 @@ class ShopData {
       throw StateError('Khách hàng đã ngừng sử dụng.');
     }
     _checkBookChange(customerId, total, paid);
-    final snapshots = <Json>[];
+    // Deduct/reserve ONCE per product. Then distribute exact lot allocations
+    // across each sale line so cartons and loose items appear separately.
+    final allocationPools = <String, List<Json>>{};
     for (final entry in quantities.entries) {
       final p = product(entry.key);
       int remaining = entry.value;
@@ -627,16 +1052,64 @@ class ShopData {
           'cost': null,
         });
       }
+      allocationPools[entry.key] = allocations;
+    }
+
+    // Each line gets its exact portion of the allocations. This also lets
+    // existing return/cancel/fulfil flows operate without double-counting.
+    final nextAllocationIndex = <String, int>{};
+    final partialAllocationUsed = <String, int>{};
+    final quantityLeft = Map<String, int>.from(quantities);
+    final moneyLeft = <String, int>{
+      for (final entry in quantities.entries)
+        entry.key: lineMoney(entry.value, product(entry.key).price),
+    };
+    final snapshots = <Json>[];
+    for (final line in lines) {
+      final p = product(line.productId);
+      final pool = allocationPools[p.id]!;
+      var index = nextAllocationIndex[p.id] ?? 0;
+      var offset = partialAllocationUsed[p.id] ?? 0;
+      var needed = line.area;
+      final allocations = <Json>[];
+      while (needed > 0) {
+        if (index >= pool.length) {
+          throw StateError('Không đủ phân bổ tồn kho để lập chứng từ.');
+        }
+        final source = pool[index];
+        final available = (source['area'] as int) - offset;
+        final take = min(needed, available);
+        allocations.add({
+          'lot': source['lot'],
+          'area': take,
+          'cost': source['cost'],
+        });
+        needed -= take;
+        offset += take;
+        if (offset == source['area']) {
+          index++;
+          offset = 0;
+        }
+      }
+      nextAllocationIndex[p.id] = index;
+      partialAllocationUsed[p.id] = offset;
+      final isLast = quantityLeft[p.id] == line.area;
+      final amount = isLast
+          ? moneyLeft[p.id]!
+          : min(moneyLeft[p.id]!, lineMoney(line.area, p.price));
+      moneyLeft[p.id] = moneyLeft[p.id]! - amount;
+      quantityLeft[p.id] = quantityLeft[p.id]! - line.area;
       snapshots.add({
         'productId': p.id,
         'code': p.code,
         'name': p.name,
-        if (notes[entry.key]!.isNotEmpty) 'note': notes[entry.key],
+        if (line.note.isNotEmpty) 'note': line.note,
         'unit': p.unit,
+        if (line.saleUnit.isNotEmpty) 'saleUnit': line.saleUnit,
         'price': p.price,
         'ratio': p.ratio,
-        'area': entry.value,
-        'amount': lineMoney(entry.value, p.price),
+        'area': line.area,
+        'amount': amount,
         'allocations': allocations,
       });
     }
@@ -650,7 +1123,7 @@ class ShopData {
       'id': 'DH-$sequence',
       if (customer != null) 'customerName': customer['name'] ?? '',
       if (customer != null) 'customerPhone': customer['phone'] ?? '',
-      if (customer != null) 'customerAddress': customer['address'] ?? '', 
+      if (customer != null) 'customerAddress': customer['address'] ?? '',
       'requestId': requestId,
       'customerId': customerId,
       'lines': snapshots,
@@ -702,7 +1175,10 @@ class ShopData {
   /// Full return of a *sold* order, only by owner. Reinstates each original
   /// lot allocation and records an external/manual cash refund. No deletion.
   /// Partial returns and automatic bank transfer are intentionally unsupported.
-  void returnSoldOrder(String orderId, String reason, Actor actor, {
+  void returnSoldOrder(
+    String orderId,
+    String reason,
+    Actor actor, {
     required bool cashWasReturned,
   }) {
     actor.requireAdmin();
@@ -715,15 +1191,20 @@ class ShopData {
     }
     final paid = collected(o);
     if (paid > 0 && !cashWasReturned) {
-      throw StateError('Đơn đã thu tiền. Phải xác nhận đã hoàn tiền ngoài phần mềm.');
+      throw StateError(
+        'Đơn đã thu tiền. Phải xác nhận đã hoàn tiền ngoài phần mềm.',
+      );
     }
-    if (deliveries.any((d) =>
-        (d['orderId'] == orderId || d['id'] == 'delivery-$orderId') &&
-        d['status'] != 'Đã hủy')) {
-      throw StateError('Đơn có giao hàng liên quan: xử lý giao hàng trước khi trả.');
+    if (deliveries.any(
+      (d) =>
+          (d['orderId'] == orderId || d['id'] == 'delivery-$orderId') &&
+          d['status'] != 'Đã hủy',
+    )) {
+      throw StateError(
+        'Đơn có giao hàng liên quan: xử lý giao hàng trước khi trả.',
+      );
     }
-    _checkBookChange(o['customerId'] as String,
-        -(o['total'] as int), -paid);
+    _checkBookChange(o['customerId'] as String, -(o['total'] as int), -paid);
     // Validate ALL references before mutating any quantity.
     final restocks = <({Product product, Json lot, int quantity})>[];
     for (final raw in o['lines'] as List) {
@@ -733,10 +1214,15 @@ class ShopData {
         final allocation = Json.from(item as Map);
         final matches = p.lots.where((l) => l['id'] == allocation['lot']);
         if (matches.length != 1 || (allocation['area'] as int) <= 0) {
-          throw StateError('Thiếu lô gốc của $orderId; không được cộng tồn bằng tay.');
+          throw StateError(
+            'Thiếu lô gốc của $orderId; không được cộng tồn bằng tay.',
+          );
         }
-        restocks.add((product: p, lot: matches.single,
-            quantity: allocation['area'] as int));
+        restocks.add((
+          product: p,
+          lot: matches.single,
+          quantity: allocation['area'] as int,
+        ));
       }
     }
     final at = DateTime.now().toUtc().toIso8601String();
@@ -744,10 +1230,14 @@ class ShopData {
       record.lot['area'] = (record.lot['area'] as int) + record.quantity;
       record.lot['hiddenFromInventory'] = false;
       stockMoves.insert(0, {
-        'id': const Uuid().v4(), 'product': record.product.code,
-        'area': record.quantity, 'type': 'Trả hàng đã bán',
-        'lot': record.lot['id'], 'orderId': orderId,
-        'actor': actor.id, 'at': at,
+        'id': const Uuid().v4(),
+        'product': record.product.code,
+        'area': record.quantity,
+        'type': 'Trả hàng đã bán',
+        'lot': record.lot['id'],
+        'orderId': orderId,
+        'actor': actor.id,
+        'at': at,
       });
     }
     o['status'] = 'Đã trả hàng';
@@ -758,9 +1248,13 @@ class ShopData {
     // refund records cash actually paid back, NOT a scheduled payout.
     o['refund'] = paid;
     o['refundMethod'] = paid == 0 ? 'Không phát sinh' : 'Đã hoàn thủ công';
-    log(actor, 'Trả toàn bộ đơn và hoàn tiền', orderId,
-        'Trả ${restocks.length} phân bổ lô, hoàn $paid đ (ngoài ứng dụng). '
-        'Lý do: ${reason.trim()}');
+    log(
+      actor,
+      'Trả toàn bộ đơn và hoàn tiền',
+      orderId,
+      'Trả ${restocks.length} phân bổ lô, hoàn $paid đ (ngoài ứng dụng). '
+          'Lý do: ${reason.trim()}',
+    );
   }
 
   static int collected(Json order) => (order['payments'] as List)
@@ -768,7 +1262,10 @@ class ShopData {
       .fold<int>(0, (v, p) => v + (p['amount'] as int));
   static int netCollected(Json order) =>
       collected(order) - ((order['refund'] as int?) ?? 0);
-  void cancelHeld(String id, String reason, Actor actor, {
+  void cancelHeld(
+    String id,
+    String reason,
+    Actor actor, {
     bool depositRefunded = false,
     String refundMethod = '',
   }) {
@@ -782,8 +1279,10 @@ class ShopData {
     if (deposit > 0) {
       actor.requireAdmin();
       if (!depositRefunded || refundMethod.trim().isEmpty) {
-        throw StateError('Chỉ chủ cửa hàng được xác nhận đã hoàn cọc '
-            'ngoài phần mềm và phải chọn phương thức hoàn.');
+        throw StateError(
+          'Chỉ chủ cửa hàng được xác nhận đã hoàn cọc '
+          'ngoài phần mềm và phải chọn phương thức hoàn.',
+        );
       }
     }
     _checkBookChange(o['customerId'], -(o['total'] as int), -collected(o));
@@ -946,7 +1445,9 @@ class ShopData {
   ({int receivable, int received}) customerBook(String customerId) {
     final customer = customers.where((c) => c['id'] == customerId).firstOrNull;
     final sold = orders.where(
-      (o) => o['customerId'] == customerId && !['Đã hủy', 'Đã trả hàng'].contains(o['status']),
+      (o) =>
+          o['customerId'] == customerId &&
+          !['Đã hủy', 'Đã trả hàng'].contains(o['status']),
     );
     return (
       receivable:
@@ -1088,7 +1589,9 @@ class ShopData {
     final d = deliveries.firstWhere((d) => d['id'] == id);
     if (d['status'] == 'Đã xong') return;
     if (d['status'] != 'Đang giao') {
-      throw StateError('Chỉ hoàn tất chuyến đang giao, không được mở lại chuyến đã hủy.');
+      throw StateError(
+        'Chỉ hoàn tất chuyến đang giao, không được mở lại chuyến đã hủy.',
+      );
     }
     d['status'] = 'Đã xong';
     d['finishedBy'] = actor.id;
@@ -1110,8 +1613,10 @@ class ShopData {
     final d = deliveries.firstWhere((d) => d['id'] == id);
     if (d['status'] == 'Đã hủy') return;
     if (d['status'] != 'Đang giao') {
-      throw StateError('Chuyến đã hoàn thành: không được hủy trực tiếp. '
-          'Cần xử lý trả hàng/điều chỉnh có chứng từ.');
+      throw StateError(
+        'Chuyến đã hoàn thành: không được hủy trực tiếp. '
+        'Cần xử lý trả hàng/điều chỉnh có chứng từ.',
+      );
     }
     d['status'] = 'Đã hủy';
     d['cancelledAt'] = DateTime.now().toUtc().toIso8601String();

@@ -9,6 +9,35 @@ import '../domain/shop.dart';
 import '../data/store_profile.dart';
 
 class PrintService {
+  // Legacy invoices without saleUnit are always displayed in the base unit.
+  static String _saleUnit(Map row) {
+    final selected = row['saleUnit'];
+    final base = row['unit'] as String? ?? 'm²';
+    return selected is String &&
+            selected.isNotEmpty &&
+            selected != base &&
+            ((row['ratio'] as num?) ?? 0) > 0
+        ? selected
+        : base;
+  }
+
+  static num _saleQuantity(Map row) {
+    if (_saleUnit(row) != (row['unit'] as String? ?? 'm²')) {
+      return (row['area'] as num) / (row['ratio'] as num);
+    }
+    return (row['area'] as num) / 10000;
+  }
+
+  static int _saleUnitPrice(Map row) {
+    if (_saleUnit(row) != (row['unit'] as String? ?? 'm²')) {
+      return lineMoney(
+        (row['ratio'] as num).toInt(),
+        (row['price'] as num).toInt(),
+      );
+    }
+    return (row['price'] as num).toInt();
+  }
+
   // Order lines retain the price/name/amount at sale time. Never recalculate
   // an invoice from today's product catalog or write a second sales record.
   /// Prints the saved sale, or a clearly labelled local-only temporary slip.
@@ -152,12 +181,10 @@ class PrintService {
                 [
                   '${i + 1}',
                   '${lines[i]['name']}${(lines[i]['note'] as String? ?? '').isEmpty ? '' : '\n${lines[i]['note']}'}',
-                  NumberFormat(
-                    '0.####',
-                    'vi',
-                  ).format((lines[i]['area'] as num) / 10000),
-                  (lines[i]['unit'] as String?) ?? 'm²',
-                  NumberFormat.decimalPattern('vi').format(lines[i]['price']),
+                  NumberFormat('0.####', 'vi').format(_saleQuantity(lines[i])),
+                  _saleUnit(lines[i]),
+                  NumberFormat.decimalPattern('vi')
+                      .format(_saleUnitPrice(lines[i])),
                   NumberFormat.decimalPattern('vi').format(lines[i]['amount']),
                 ],
             ],
@@ -272,61 +299,81 @@ class PrintService {
         pw.Text(value, style: isBold ? strong : body),
       ],
     );
-    doc.addPage(pw.MultiPage(
-      pageFormat: PdfPageFormat(
-        80 * PdfPageFormat.mm, heightMm * PdfPageFormat.mm,
-        marginAll: 4 * PdfPageFormat.mm,
-      ),
-      build: (_) => [
-        pw.Center(child: pw.Text('VLXD ${store.name}',
-            style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold))),
-        if (store.address.isNotEmpty)
-          pw.Center(child: pw.Text(store.address,
-            style: const pw.TextStyle(fontSize: 8),
-            textAlign: pw.TextAlign.center)),
-        if (store.phone.isNotEmpty)
-          pw.Center(child: pw.Text(store.phone, style: body)),
-        pw.SizedBox(height: 5),
-        pw.Divider(thickness: 1),
-        pw.Center(child: pw.Text(
-          provisional ? 'PHIẾU TẠM - CHỜ ĐỒNG BỘ' : 'PHIẾU BÁN HÀNG',
-          style: strong,
-        )),
-        pw.SizedBox(height: 6),
-        pw.Text('Mã đơn: ${order['id']}', style: body),
-        pw.Text('Ngày: $when', style: body),
-        pw.Text('Khách hàng: $customerName', style: body),
-        if ((order['customerPhone'] as String? ?? '').isNotEmpty)
-          pw.Text('ĐT: ${order['customerPhone']}', style: body),
-        pw.Divider(thickness: 0.6),
-        for (final item in lines) ...[
-          pw.Text('${item['name']}', style: strong),
-          if ((item['note'] as String? ?? '').trim().isNotEmpty)
-            pw.Text('Ghi chú: ${item['note']}', style: body),
-          pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-            pw.Expanded(child: pw.Text(
-              '${NumberFormat('0.####','vi').format((item['area'] as num)/10000)} '
-              '${item['unit'] ?? ''} × '
-              '${NumberFormat.decimalPattern('vi').format(item['price'])}',
-              style: body,
-            )),
-            pw.Text(money((item['amount'] as num).toInt()), style: body),
-          ]),
-          pw.SizedBox(height: 4),
-        ],
-        pw.Divider(thickness: 0.6),
-        line('Tổng tiền hàng', money(subtotal + discount)),
-        line('Giảm giá', discount == 0 ? money(0) : '-${money(discount)}'),
-        line('Phí vận chuyển', money(ship)),
-        pw.Divider(thickness: 0.6),
-        line('TỔNG THANH TOÁN', money(total), isBold: true),
-        if (provisional) ...[
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat(
+          80 * PdfPageFormat.mm,
+          heightMm * PdfPageFormat.mm,
+          marginAll: 4 * PdfPageFormat.mm,
+        ),
+        build: (_) => [
+          pw.Center(
+            child: pw.Text(
+              'VLXD ${store.name}',
+              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+            ),
+          ),
+          if (store.address.isNotEmpty)
+            pw.Center(
+              child: pw.Text(
+                store.address,
+                style: const pw.TextStyle(fontSize: 8),
+                textAlign: pw.TextAlign.center,
+              ),
+            ),
+          if (store.phone.isNotEmpty)
+            pw.Center(child: pw.Text(store.phone, style: body)),
+          pw.SizedBox(height: 5),
+          pw.Divider(thickness: 1),
+          pw.Center(
+            child: pw.Text(
+              provisional ? 'PHIẾU TẠM - CHỜ ĐỒNG BỘ' : 'PHIẾU BÁN HÀNG',
+              style: strong,
+            ),
+          ),
           pw.SizedBox(height: 6),
-          pw.Text('Lưu trên thiết bị - chưa xác nhận máy chủ.',
-              style: const pw.TextStyle(fontSize: 8)),
+          pw.Text('Mã đơn: ${order['id']}', style: body),
+          pw.Text('Ngày: $when', style: body),
+          pw.Text('Khách hàng: $customerName', style: body),
+          if ((order['customerPhone'] as String? ?? '').isNotEmpty)
+            pw.Text('ĐT: ${order['customerPhone']}', style: body),
+          pw.Divider(thickness: 0.6),
+          for (final item in lines) ...[
+            pw.Text('${item['name']}', style: strong),
+            if ((item['note'] as String? ?? '').trim().isNotEmpty)
+              pw.Text('Ghi chú: ${item['note']}', style: body),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Expanded(
+                  child: pw.Text(
+                    '${NumberFormat('0.####', 'vi').format(_saleQuantity(item))} '
+                    '${_saleUnit(item)} × '
+                    '${NumberFormat.decimalPattern('vi').format(_saleUnitPrice(item))}',
+                    style: body,
+                  ),
+                ),
+                pw.Text(money((item['amount'] as num).toInt()), style: body),
+              ],
+            ),
+            pw.SizedBox(height: 4),
+          ],
+          pw.Divider(thickness: 0.6),
+          line('Tổng tiền hàng', money(subtotal + discount)),
+          line('Giảm giá', discount == 0 ? money(0) : '-${money(discount)}'),
+          line('Phí vận chuyển', money(ship)),
+          pw.Divider(thickness: 0.6),
+          line('TỔNG THANH TOÁN', money(total), isBold: true),
+          if (provisional) ...[
+            pw.SizedBox(height: 6),
+            pw.Text(
+              'Lưu trên thiết bị - chưa xác nhận máy chủ.',
+              style: const pw.TextStyle(fontSize: 8),
+            ),
+          ],
         ],
-      ],
-    ));
+      ),
+    );
     return doc.save();
   }
 

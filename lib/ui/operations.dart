@@ -12,9 +12,12 @@ String _legacyLotCode(Object? id) {
 }
 
 List<Json> _visibleInventoryLots(Product product) => product.lots
-    .where((lot) => lot['hiddenFromInventory'] != true ||
-        (lot['area'] as int? ?? 0) != 0 ||
-        (lot['reserved'] as int? ?? 0) != 0)
+    .where(
+      (lot) =>
+          lot['hiddenFromInventory'] != true ||
+          (lot['area'] as int? ?? 0) != 0 ||
+          (lot['reserved'] as int? ?? 0) != 0,
+    )
     .toList();
 
 String _inventoryLotLabel(Product product, Json lot) {
@@ -29,7 +32,9 @@ String _inventoryLotLabel(Product product, Json lot) {
 }
 
 Future<void> hideEmptyInventoryLot(
-  BuildContext context, Product product, Json lot,
+  BuildContext context,
+  Product product,
+  Json lot,
 ) async {
   final quantity = lot['area'] as int? ?? 0;
   final reserved = lot['reserved'] as int? ?? 0;
@@ -38,10 +43,16 @@ Future<void> hideEmptyInventoryLot(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Không thể ẩn lô đang có hàng'),
-        content: const Text('Chỉ ẩn khi tồn và giữ đều bằng 0. '
-            'Nếu cần thay đổi số lượng, hãy dùng Kiểm kê / ảnh kho.'),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx),
-          child: const Text('Đã hiểu'))],
+        content: const Text(
+          'Chỉ ẩn khi tồn và giữ đều bằng 0. '
+          'Nếu cần thay đổi số lượng, hãy dùng Kiểm kê / ảnh kho.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Đã hiểu'),
+          ),
+        ],
       ),
     );
     return;
@@ -51,13 +62,19 @@ Future<void> hideEmptyInventoryLot(
     context: context,
     builder: (ctx) => AlertDialog(
       title: Text('Ẩn $label khỏi Kho?'),
-      content: const Text('Lô hết hàng sẽ được ẩn khỏi màn hình Kho. '
-          'Mã gốc, lịch sử và chứng từ không bị xóa.'),
+      content: const Text(
+        'Lô hết hàng sẽ được ẩn khỏi màn hình Kho. '
+        'Mã gốc, lịch sử và chứng từ không bị xóa.',
+      ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('Hủy')),
-        FilledButton(onPressed: () => Navigator.pop(ctx, true),
-          child: const Text('Ẩn lô')),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Hủy'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Ẩn lô'),
+        ),
       ],
     ),
   );
@@ -67,7 +84,9 @@ Future<void> hideEmptyInventoryLot(
     await shop.change((data, actor) {
       actor.requireAdmin();
       final currentProduct = data.product(product.id);
-      final matches = currentProduct.lots.where((item) => item['id'] == lot['id']);
+      final matches = currentProduct.lots.where(
+        (item) => item['id'] == lot['id'],
+      );
       if (matches.length != 1) {
         throw StateError('Lô đã thay đổi. Vui lòng tải lại danh sách Kho.');
       }
@@ -78,17 +97,28 @@ Future<void> hideEmptyInventoryLot(
         throw StateError('Lô đã thay đổi hoặc vẫn còn tồn. Vui lòng tải lại.');
       }
       current['hiddenFromInventory'] = true;
-      data.log(actor, 'Ẩn lô hết hàng', currentProduct.code,
-          '$label (${current['id']}) được ẩn khỏi Kho; giữ lịch sử.');
+      data.log(
+        actor,
+        'Ẩn lô hết hàng',
+        currentProduct.code,
+        '$label (${current['id']}) được ẩn khỏi Kho; giữ lịch sử.',
+      );
     });
   });
 }
 
 Future<void> showHiddenInventoryLots(
-    BuildContext context, Product product) async {
-  final hidden = product.lots.where((l) => l['hiddenFromInventory'] == true &&
-      (l['area'] as int? ?? 0) == 0 &&
-      (l['reserved'] as int? ?? 0) == 0).toList();
+  BuildContext context,
+  Product product,
+) async {
+  final hidden = product.lots
+      .where(
+        (l) =>
+            l['hiddenFromInventory'] == true &&
+            (l['area'] as int? ?? 0) == 0 &&
+            (l['reserved'] as int? ?? 0) == 0,
+      )
+      .toList();
   if (hidden.isEmpty) return;
   await safeDialog<void>(
     context: context,
@@ -107,12 +137,18 @@ Future<void> showHiddenInventoryLots(
                   onPressed: () => attempt(() async {
                     await Get.find<ShopController>().change((data, actor) {
                       actor.requireAdmin();
-                      final current = data.product(product.id).lots
+                      final current = data
+                          .product(product.id)
+                          .lots
                           .firstWhere((l) => l['id'] == lot['id']);
                       if (current['hiddenFromInventory'] != true) return;
                       current['hiddenFromInventory'] = false;
-                      data.log(actor, 'Hiện lô hàng', product.code,
-                          'Khôi phục lô ${lot['id']} lên màn hình Kho.');
+                      data.log(
+                        actor,
+                        'Hiện lô hàng',
+                        product.code,
+                        'Khôi phục lô ${lot['id']} lên màn hình Kho.',
+                      );
                     });
                     if (ctx.mounted) Navigator.pop(ctx);
                   }),
@@ -122,26 +158,74 @@ Future<void> showHiddenInventoryLots(
           ],
         ),
       ),
-      actions: [TextButton(onPressed: () => Navigator.pop(ctx),
-          child: const Text('Đóng'))],
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Đóng'),
+        ),
+      ],
     ),
   );
 }
 
-class InventoryPage extends StatelessWidget {
+class InventoryPage extends StatefulWidget {
   const InventoryPage({super.key});
+
+  @override
+  State<InventoryPage> createState() => _InventoryPageState();
+}
+
+class _InventoryPageState extends State<InventoryPage> {
+  String query = '';
+
   @override
   Widget build(BuildContext context) {
     final c = Get.find<ShopController>();
+    final compact = MediaQuery.sizeOf(context).width < 600;
+    final needle = ShopData.normalizeProductText(query);
+    final products = c.data.products.where((p) {
+      if (p.deleted || p.archivedFromLists) return false;
+      if (needle.isEmpty) return true;
+      final searchable = <String>[
+        p.code,
+        p.name,
+        p.size,
+        p.supplier,
+        for (final lot in p.lots)
+          '${_inventoryLotLabel(p, lot)} ${lot['id'] ?? ''}',
+      ].join(' ');
+      return ShopData.normalizeProductText(searchable).contains(needle);
+    }).toList();
     return ListView(
       padding: vlxdPagePadding(context),
       children: [
         titleText('Kho và lô hàng'),
         const SizedBox(height: 8),
-        hint('Theo dõi tồn thực tế, lượng đang giữ và giá vốn từng lô.'),
+        if (!compact)
+          hint('Theo dõi tồn thực tế, lượng đang giữ và giá vốn từng lô.'),
+        const SizedBox(height: 12),
+        TextField(
+          onChanged: (text) => setState(() => query = text),
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.search),
+            hintText: 'Tìm trong Kho: mã, tên, quy cách, nhà cung cấp, lô...',
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Đang hiển thị ${products.length} sản phẩm',
+          style: const TextStyle(color: Colors.blueGrey, fontSize: 12),
+        ),
+        if (products.isEmpty)
+          const EmptyState(
+            'Không tìm thấy trong kho',
+            'Thử tìm theo mã sản phẩm, tên, kích thước hoặc mã lô.',
+            Icons.search_off,
+          ),
         const SizedBox(height: 12),
         VlxdPagedList<Product>(
-          items: c.data.products.where((p) => !p.deleted && !p.archivedFromLists).toList(),
+          key: ValueKey('inventory-search-$query'),
+          items: products,
           pageSize: 10,
           itemBuilder: (p) => Padding(
             padding: const EdgeInsets.only(bottom: 9),
@@ -169,7 +253,11 @@ class InventoryPage extends StatelessWidget {
                   Text(
                     'Tồn ${area(p.stock)} ${p.unit} • Giữ ${area(p.reserved)} ${p.unit} • Khả dụng ${area(p.available)} ${p.unit}',
                   ),
-                  hint(p.minimum > 0 ? 'Cảnh báo khi tồn kho còn: ${area(p.minimum)} ${p.unit}' : 'Chưa đặt ngưỡng cảnh báo'),
+                  hint(
+                    p.minimum > 0
+                        ? 'Cảnh báo khi tồn kho còn: ${area(p.minimum)} ${p.unit}'
+                        : 'Chưa đặt ngưỡng cảnh báo',
+                  ),
                   const SizedBox(height: 4),
                   if (_visibleInventoryLots(p).isNotEmpty)
                     ExpansionTile(
@@ -192,19 +280,27 @@ class InventoryPage extends StatelessWidget {
                           ListTile(
                             dense: true,
                             contentPadding: EdgeInsets.zero,
-                            title: Text('${_inventoryLotLabel(p, l)} • ${day(l['date'])}'),
+                            title: Text(
+                              '${_inventoryLotLabel(p, l)} • ${day(l['date'])}',
+                            ),
                             subtitle: Text(
                               '${area(l['area'])} ${p.unit} • Vốn ${money(l['cost'])}/${p.unit}',
                             ),
                             trailing: Tooltip(
-                              message: (l['area'] == 0 &&
+                              message:
+                                  (l['area'] == 0 &&
                                       (l['reserved'] as int? ?? 0) == 0)
                                   ? 'Ẩn lô hết hàng (giữ lịch sử)'
                                   : 'Lô đang có tồn hoặc giữ: không thể ẩn',
                               child: IconButton(
-                                icon: const Icon(Icons.visibility_off_outlined, color: Colors.orange),
-                                onPressed: c.busy ? null :
-                                    () => hideEmptyInventoryLot(context, p, l),
+                                icon: const Icon(
+                                  Icons.visibility_off_outlined,
+                                  color: Colors.orange,
+                                ),
+                                onPressed: c.busy
+                                    ? null
+                                    : () =>
+                                          hideEmptyInventoryLot(context, p, l),
                               ),
                             ),
                           ),
@@ -215,33 +311,55 @@ class InventoryPage extends StatelessWidget {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      OutlinedButton.icon(
-                        onPressed: () => receiveStock(context, p),
-                        icon: const Icon(Icons.add_box_outlined),
-                        label: const Text('Nhập hàng'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () => inspectStock(context, p),
-                        icon: const Icon(Icons.fact_check_outlined),
-                        label: const Text('Kiểm kê / ảnh kho'),
-                      ),
+                      if (compact)
+                        IconButton.outlined(
+                          tooltip: 'Nhập hàng',
+                          onPressed: () => receiveStock(context, p),
+                          icon: const Icon(Icons.add_box_outlined),
+                        )
+                      else
+                        OutlinedButton.icon(
+                          onPressed: () => receiveStock(context, p),
+                          icon: const Icon(Icons.add_box_outlined),
+                          label: const Text('Nhập hàng'),
+                        ),
+                      if (compact)
+                        IconButton.outlined(
+                          tooltip: 'Kiểm kê / ảnh kho',
+                          onPressed: () => inspectStock(context, p),
+                          icon: const Icon(Icons.fact_check_outlined),
+                        )
+                      else
+                        OutlinedButton.icon(
+                          onPressed: () => inspectStock(context, p),
+                          icon: const Icon(Icons.fact_check_outlined),
+                          label: const Text('Kiểm kê / ảnh kho'),
+                        ),
                       if (c.actor?.canAdmin == true &&
-                          p.lots.any((l) => l['hiddenFromInventory'] == true &&
-                              (l['area'] as int? ?? 0) == 0 &&
-                              (l['reserved'] as int? ?? 0) == 0))
+                          p.lots.any(
+                            (l) =>
+                                l['hiddenFromInventory'] == true &&
+                                (l['area'] as int? ?? 0) == 0 &&
+                                (l['reserved'] as int? ?? 0) == 0,
+                          ))
                         TextButton.icon(
                           icon: const Icon(Icons.visibility_outlined),
                           label: const Text('Xem lô đã ẩn'),
                           onPressed: () => showHiddenInventoryLots(context, p),
                         ),
                       if (c.actor?.canAdmin == true &&
-                          p.lots.any((l) => l['lotNumber'] is! int || (l['lotNumber'] as int) <= 0))
+                          p.lots.any(
+                            (l) =>
+                                l['lotNumber'] is! int ||
+                                (l['lotNumber'] as int) <= 0,
+                          ))
                         TextButton.icon(
                           icon: const Icon(Icons.push_pin_outlined),
                           label: const Text('Đánh số lô cũ'),
                           onPressed: () => attempt(() async {
-                            await c.change((d, a) =>
-                                d.assignMissingLotNumbers(p.id, a));
+                            await c.change(
+                              (d, a) => d.assignMissingLotNumbers(p.id, a),
+                            );
                           }),
                         ),
                     ],
@@ -251,7 +369,29 @@ class InventoryPage extends StatelessWidget {
             ),
           ),
         ),
-        if (c.data.stockMoves.isNotEmpty)
+        if (c.data.stockMoves.isNotEmpty && compact)
+          panel(
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: EdgeInsets.zero,
+              title: Text(
+                'Biến động gần đây (${c.data.stockMoves.length})',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              children: [
+                for (final m in c.data.stockMoves.take(20))
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('${m['type']} • ${m['product']}'),
+                    subtitle: Text(
+                      '${day(m['at'])} • ${area(m['area'])} ${c.data.products.where((p) => p.code == m['product']).firstOrNull?.unit ?? 'm²'}',
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        if (c.data.stockMoves.isNotEmpty && !compact)
           panel(
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -279,8 +419,13 @@ class InventoryPage extends StatelessWidget {
 Future<void> receiveStock(BuildContext context, Product p) async {
   final shop = Get.find<ShopController>();
   final operationId = newId();
-  final qty = TextEditingController(text: '10'),
-      cost = TextEditingController(text: '${(p.price * .7).round()}');
+  var inputUnit = p.packUnit;
+  final qty = TextEditingController(text: '10');
+  final initialBaseCost = (p.price * .7).round();
+  final cost = TextEditingController(
+    text:
+        '${p.hasPackConversion ? (initialBaseCost * p.ratio / productUnitScale).round() : initialBaseCost}',
+  );
   var date = DateTime.now();
   await safeDialog<void>(
     context: context,
@@ -295,12 +440,79 @@ Future<void> receiveStock(BuildContext context, Product p) async {
               children: [
                 Text('${p.name} ${p.size}'),
                 const SizedBox(height: 16),
-                field(
-                  qty,
-                  p.hasPackConversion ? 'Số thùng' : 'Số lượng (${p.unit})',
-                  number: true,
+                if (p.hasPackConversion) ...[
+                  SegmentedButton<String>(
+                    segments: [
+                      ButtonSegment(
+                        value: p.secondaryUnit,
+                        label: Text('Theo ${p.secondaryUnit}'),
+                      ),
+                      ButtonSegment(
+                        value: p.unit,
+                        label: Text('Theo ${p.unit}'),
+                      ),
+                    ],
+                    selected: {inputUnit},
+                    onSelectionChanged: (selected) {
+                      final next = selected.first;
+                      if (next == inputUnit) return;
+                      final oldFactor = p.factorForUnit(inputUnit);
+                      final newFactor = p.factorForUnit(next);
+                      final oldQty = decimal(qty.text);
+                      if (oldQty.isFinite && oldQty > 0) {
+                        qty.text = NumberFormat(
+                          '0.##########',
+                          'vi',
+                        ).format(oldQty * oldFactor / newFactor);
+                      }
+                      final oldCost = whole(cost.text);
+                      if (oldCost >= 0) {
+                        cost.text =
+                            '${(oldCost * newFactor / oldFactor).round()}';
+                      }
+                      set(() => inputUnit = next);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                field(qty, 'Số lượng ($inputUnit)', number: true),
+                field(cost, 'Giá nhập đ/$inputUnit', moneyInput: true),
+                const SizedBox(height: 8),
+                ListenableBuilder(
+                  listenable: Listenable.merge([qty, cost]),
+                  builder: (context, _) {
+                    final n = decimal(qty.text);
+                    final price = whole(cost.text);
+                    if (!n.isFinite || n <= 0 || price < 0) {
+                      return const Text(
+                        'Kiểm tra số lượng và giá nhập trước khi lưu.',
+                      );
+                    }
+                    final byPack = p.isSecondaryUnit(inputUnit);
+                    final factor = inputUnitFactor(
+                      packRatio: p.ratio,
+                      byPack: byPack,
+                    );
+                    if (factor <= 0 || n * factor < .5) {
+                      return const Text('Số lượng quá nhỏ để ghi nhận.');
+                    }
+                    final amount = baseQuantityFromInput(
+                      quantity: n,
+                      packRatio: p.ratio,
+                      byPack: byPack,
+                    );
+                    final perBase = baseUnitCostFromInput(
+                      enteredUnitCost: price,
+                      packRatio: p.ratio,
+                      byPack: byPack,
+                    );
+                    return Text(
+                      'Quy đổi: ${area(amount)} ${p.unit} • '
+                      'Giá vốn: ${money(perBase)}/${p.unit} • '
+                      'Tổng vốn ghi sổ: ${money(lineMoney(amount, perBase))}',
+                    );
+                  },
                 ),
-                field(cost, 'Giá nhập đ/${p.unit}', moneyInput: true),
                 TextButton.icon(
                   onPressed: () async {
                     final selected = await showDatePicker(
@@ -315,7 +527,7 @@ Future<void> receiveStock(BuildContext context, Product p) async {
                   label: Text(DateFormat('dd/MM/yyyy').format(date)),
                 ),
                 hint(
-                  'Nhà cung cấp: ${p.supplier}\n${p.hasPackConversion ? '1 thùng = ${area(p.ratio)} m²' : 'Nhập số lượng đã tự tính theo ${p.unit}'}',
+                  'Nhà cung cấp: ${p.supplier}\n${p.hasPackConversion ? conversionHint(p) : 'Nhập số lượng đã tự tính theo ${p.unit}'}',
                 ),
               ],
             ),
@@ -332,8 +544,24 @@ Future<void> receiveStock(BuildContext context, Product p) async {
               if (!n.isFinite || n <= 0) {
                 throw ArgumentError('Số lượng nhập không hợp lệ.');
               }
-              final units = (n * p.quantityStep).round();
-              final unitCost = whole(cost.text);
+              final byPack = p.isSecondaryUnit(inputUnit);
+              final units = baseQuantityFromInput(
+                quantity: n,
+                packRatio: p.ratio,
+                byPack: byPack,
+              );
+              final enteredCost = whole(cost.text);
+              if (enteredCost < 0) {
+                throw ArgumentError('Giá nhập phải là số nguyên không âm.');
+              }
+              final unitCost = baseUnitCostFromInput(
+                enteredUnitCost: enteredCost,
+                packRatio: p.ratio,
+                byPack: byPack,
+              );
+              if (unitCost > 1000000000) {
+                throw ArgumentError('Giá vốn vượt giới hạn cho phép.');
+              }
               if (shop.isLive) {
                 await _queueBookOperation(
                   shop,
@@ -346,6 +574,7 @@ Future<void> receiveStock(BuildContext context, Product p) async {
                     cost: unitCost,
                     ratio: p.ratio,
                     unit: p.unit,
+                    secondaryUnit: p.hasPackConversion ? p.secondaryUnit : '',
                     date: date,
                   ),
                 );
@@ -585,11 +814,11 @@ class DeliveriesPage extends StatelessWidget {
                     runSpacing: 8,
                     children: [
                       if (d['status'] == 'Đang giao')
-                      OutlinedButton.icon(
-                        onPressed: () => editDelivery(context, original: d),
-                        icon: const Icon(Icons.edit_outlined),
-                        label: const Text('Sửa / ảnh giao hàng'),
-                      ),
+                        OutlinedButton.icon(
+                          onPressed: () => editDelivery(context, original: d),
+                          icon: const Icon(Icons.edit_outlined),
+                          label: const Text('Sửa / ảnh giao hàng'),
+                        ),
                       if (d['status'] == 'Đang giao')
                         FilledButton.icon(
                           onPressed: () => attempt(() async {
@@ -631,16 +860,30 @@ Future<void> cancelDeliveryDialog(BuildContext context, Json delivery) async {
     context: context,
     builder: (ctx) => AlertDialog(
       title: Text('Hủy chuyến ${delivery['id']}?'),
-      content: SizedBox(width: 420,
-        child: TextField(controller: reason,
-          decoration: const InputDecoration(labelText: 'Lý do hủy (ít nhất 5 ký tự)'))),
+      content: SizedBox(
+        width: 420,
+        child: TextField(
+          controller: reason,
+          decoration: const InputDecoration(
+            labelText: 'Lý do hủy (ít nhất 5 ký tự)',
+          ),
+        ),
+      ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Quay lại')),
-        FilledButton(onPressed: () => attempt(() async {
-          await Get.find<ShopController>().change((d, a) =>
-              d.cancelDelivery(delivery['id'] as String, reason.text, a));
-          if (ctx.mounted) Navigator.pop(ctx);
-        }), child: const Text('Xác nhận hủy chuyến')),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Quay lại'),
+        ),
+        FilledButton(
+          onPressed: () => attempt(() async {
+            await Get.find<ShopController>().change(
+              (d, a) =>
+                  d.cancelDelivery(delivery['id'] as String, reason.text, a),
+            );
+            if (ctx.mounted) Navigator.pop(ctx);
+          }),
+          child: const Text('Xác nhận hủy chuyến'),
+        ),
       ],
     ),
   );
@@ -770,9 +1013,12 @@ Future<void> editDelivery(BuildContext context, {Json? original}) async {
                   'images': images,
                 };
                 final i = db.deliveries.indexWhere((x) => x['id'] == id);
-                if (original != null && i >= 0 &&
+                if (original != null &&
+                    i >= 0 &&
                     db.deliveries[i]['status'] != 'Đang giao') {
-                  throw StateError('Chuyến đã hoàn tất/hủy không thể sửa trực tiếp.');
+                  throw StateError(
+                    'Chuyến đã hoàn tất/hủy không thể sửa trực tiếp.',
+                  );
                 }
                 if (original != null &&
                     (i < 0 ||
@@ -852,19 +1098,35 @@ Future<String?> editCustomer(BuildContext context, {Json? original}) async {
             }
             final customers = Get.find<ShopController>().data.customers;
             final contact = phone.text.replaceAll(RegExp(r'[^0-9]'), '');
-            final similar = customers.where((c) => c['id'] != id &&
-                ((contact.isNotEmpty &&
-                  (c['phone'] as String? ?? '').replaceAll(RegExp(r'[^0-9]'), '') == contact)
-                  || (ShopData.normalizeProductText(c['name'] as String? ?? '') ==
-                        ShopData.normalizeProductText(name.text) &&
-                      ShopData.normalizeProductText(c['address'] as String? ?? '') ==
-                        ShopData.normalizeProductText(address.text)))).toList();
+            final similar = customers
+                .where(
+                  (c) =>
+                      c['id'] != id &&
+                      ((contact.isNotEmpty &&
+                              (c['phone'] as String? ?? '').replaceAll(
+                                    RegExp(r'[^0-9]'),
+                                    '',
+                                  ) ==
+                                  contact) ||
+                          (ShopData.normalizeProductText(
+                                    c['name'] as String? ?? '',
+                                  ) ==
+                                  ShopData.normalizeProductText(name.text) &&
+                              ShopData.normalizeProductText(
+                                    c['address'] as String? ?? '',
+                                  ) ==
+                                  ShopData.normalizeProductText(address.text))),
+                )
+                .toList();
             if (similar.isNotEmpty) {
               final existing = similar.first;
-              final proceed = await confirm(ctx, 'Khách hàng có thể bị trùng',
-                  'Đã có ${existing['name']} • ${existing['phone']} '
-                  '(mã ${existing['id']}). Kiểm tra công nợ trước khi tạo mới. '
-                  'Bạn vẫn muốn lưu hồ sơ riêng?');
+              final proceed = await confirm(
+                ctx,
+                'Khách hàng có thể bị trùng',
+                'Đã có ${existing['name']} • ${existing['phone']} '
+                    '(mã ${existing['id']}). Kiểm tra công nợ trước khi tạo mới. '
+                    'Bạn vẫn muốn lưu hồ sơ riêng?',
+              );
               if (!proceed || !ctx.mounted) return;
             }
             void save(ShopData d, Actor a) {
@@ -1428,7 +1690,8 @@ Future<void> exportData(BuildContext context) async {
             'NCC',
             'Đơn vị',
             'Giá đ/đơn vị',
-            'Quy đổi thùng/khối',
+            'Đơn vị phụ',
+            '1 đơn vị phụ = số đơn vị chính',
             'Tồn',
             'Giữ',
             'Đang bán',
@@ -1442,6 +1705,7 @@ Future<void> exportData(BuildContext context) async {
               p.supplier,
               p.unit,
               p.price,
+              p.hasPackConversion ? p.secondaryUnit : '',
               p.ratio / 10000,
               p.stock / 10000,
               p.reserved / 10000,

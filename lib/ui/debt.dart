@@ -213,11 +213,23 @@ class _DebtPageState extends State<DebtPage> {
               spacing: 8,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                FilledButton.icon(
-                  onPressed: () => editCustomer(context),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Thêm khách hàng'),
-                ),
+                if (MediaQuery.sizeOf(context).width < 600)
+                  IconButton(
+                    tooltip: 'Thêm khách hàng',
+                    onPressed: () => editCustomer(context),
+                    style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFFE7F1FF),
+                      foregroundColor: const Color(0xFF0759BB),
+                      side: const BorderSide(color: Color(0xFFBCD8FC)),
+                    ),
+                    icon: const Icon(Icons.person_add_alt_1_outlined),
+                  )
+                else
+                  FilledButton.icon(
+                    onPressed: () => editCustomer(context),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Thêm khách hàng'),
+                  ),
                 IconButton(
                   tooltip: 'Cài đặt sổ công nợ',
                   onPressed: c.busy ? null : () => openDebtSettings(context),
@@ -239,94 +251,159 @@ class _DebtPageState extends State<DebtPage> {
           ),
         ),
         const SizedBox(height: 10),
-        _table(
-          DataTable(
-            showCheckboxColumn: false,
-            columnSpacing: 24,
-            horizontalMargin: 12,
-            headingRowColor: const WidgetStatePropertyAll(Color(0xFFF0F4FA)),
-            columns: const [
-              DataColumn(label: Text('Tên khách')),
-              DataColumn(label: Text('Phải thu'), numeric: true),
-              DataColumn(label: Text('Đã thu'), numeric: true),
-              DataColumn(label: Text('Còn nợ'), numeric: true),
-              DataColumn(label: Text('Trạng thái')),
-              DataColumn(label: Text('Thao tác')),
-            ],
-            rows: customers.skip(customerPage * 10).take(10).map((customer) {
-              final book = c.data.customerBook(customer['id']);
-              final total = book.receivable, paid = book.received;
-              final owed = c.data.debt(customer['id']);
-              return DataRow(
-                selected: selected?['id'] == customer['id'],
-                onSelectChanged: (_) =>
-                    setState(() => selectedId = customer['id']),
-                cells: [
-                  DataCell(
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          customer['name'],
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        hint(customer['phone']),
-                      ],
-                    ),
+        if (MediaQuery.sizeOf(context).width < 600)
+          Column(
+            children: [
+              for (final customer in customers.skip(customerPage * 10).take(10))
+                ListTile(
+                  dense: true,
+                  selected: selected?['id'] == customer['id'],
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 6),
+                  title: Text(
+                    customer['name'],
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
-                  DataCell(Text(money(total))),
-                  DataCell(Text(money(paid))),
-                  DataCell(
-                    Text(
-                      money(owed),
-                      style: TextStyle(
-                        color: owed > 0 ? const Color(0xFFB67205) : ink,
-                        fontWeight: FontWeight.w700,
+                  subtitle: Text(
+                    '${customer['phone']} • Còn nợ: ${money(c.data.debt(customer['id']))}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: PopupMenuButton<String>(
+                    tooltip: 'Thao tác khách hàng',
+                    onSelected: (action) {
+                      if (action == 'edit') {
+                        editCustomer(context, original: customer);
+                      } else if (action == 'delete' && !c.busy) {
+                        deleteCustomer(context, customer);
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem<String>(
+                        value: 'edit',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.edit_outlined,
+                              size: 19,
+                              color: Color(0xFF1976D2),
+                            ),
+                            SizedBox(width: 10),
+                            Text('Sửa'),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem<String>(
+                        value: 'delete',
+                        enabled: !c.busy,
+                        child: const Row(
+                          children: [
+                            Icon(
+                              Icons.delete_outline,
+                              size: 19,
+                              color: Color(0xFFDC2626),
+                            ),
+                            SizedBox(width: 10),
+                            Text('Xóa'),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  onTap: () => setState(() => selectedId = customer['id']),
+                ),
+            ],
+          )
+        else
+          _table(
+            DataTable(
+              showCheckboxColumn: false,
+              columnSpacing: 24,
+              horizontalMargin: 12,
+              headingRowColor: const WidgetStatePropertyAll(Color(0xFFF0F4FA)),
+              columns: const [
+                DataColumn(label: Text('Tên khách')),
+                DataColumn(label: Text('Phải thu'), numeric: true),
+                DataColumn(label: Text('Đã thu'), numeric: true),
+                DataColumn(label: Text('Còn nợ'), numeric: true),
+                DataColumn(label: Text('Trạng thái')),
+                DataColumn(label: Text('Thao tác')),
+              ],
+              rows: customers.skip(customerPage * 10).take(10).map((customer) {
+                final book = c.data.customerBook(customer['id']);
+                final total = book.receivable, paid = book.received;
+                final owed = c.data.debt(customer['id']);
+                return DataRow(
+                  selected: selected?['id'] == customer['id'],
+                  onSelectChanged: (_) =>
+                      setState(() => selectedId = customer['id']),
+                  cells: [
+                    DataCell(
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            customer['name'],
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          hint(customer['phone']),
+                        ],
                       ),
                     ),
-                  ),
-                  DataCell(
-                    badge(
-                      total == 0
-                          ? 'Chưa phát sinh'
-                          : owed == 0
-                          ? 'Đã trả'
-                          : paid > 0
-                          ? 'Trả một phần'
-                          : 'Chưa trả',
-                      warning: owed > 0,
+                    DataCell(Text(money(total))),
+                    DataCell(Text(money(paid))),
+                    DataCell(
+                      Text(
+                        money(owed),
+                        style: TextStyle(
+                          color: owed > 0 ? const Color(0xFFB67205) : ink,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
-                  ),
-                  DataCell(
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          tooltip: 'Sửa thông tin khách',
-                          onPressed: () =>
-                              editCustomer(context, original: customer),
-                          icon: const Icon(
-                            Icons.edit_outlined,
-                            color: blue,
-                            size: 20,
+                    DataCell(
+                      badge(
+                        total == 0
+                            ? 'Chưa phát sinh'
+                            : owed == 0
+                            ? 'Đã trả'
+                            : paid > 0
+                            ? 'Trả một phần'
+                            : 'Chưa trả',
+                        warning: owed > 0,
+                      ),
+                    ),
+                    DataCell(
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'Sửa thông tin khách',
+                            onPressed: () =>
+                                editCustomer(context, original: customer),
+                            icon: const Icon(
+                              Icons.edit_outlined,
+                              color: blue,
+                              size: 20,
+                            ),
                           ),
-                        ),
-                        IconButton(
-                          tooltip: 'Xóa khách hàng',
-                          onPressed: c.busy
-                              ? null
-                              : () => deleteCustomer(context, customer),
-                          icon: const Icon(Icons.close, color: Colors.red),
-                        ),
-                      ],
+                          IconButton(
+                            tooltip: 'Xóa khách hàng',
+                            onPressed: c.busy
+                                ? null
+                                : () => deleteCustomer(context, customer),
+                            icon: const Icon(Icons.close, color: Colors.red),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              );
-            }).toList(),
+                  ],
+                );
+              }).toList(),
+            ),
           ),
-        ),
         VlxdPager(
           total: customers.length,
           page: customerPage,
@@ -664,17 +741,19 @@ class _DebtPageState extends State<DebtPage> {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 if (c.actor?.canAdmin == true)
-                FilledButton.icon(
-                  onPressed: () => createPayroll(context),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Tạo kỳ lương'),
-                ),
+                  FilledButton.icon(
+                    onPressed: () => createPayroll(context),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Tạo kỳ lương'),
+                  ),
                 if (c.actor?.canAdmin == true)
-                IconButton(
-                  tooltip: 'Cài đặt lương',
-                  onPressed: c.busy ? null : () => openPayrollSettings(context),
-                  icon: const Icon(Icons.settings_outlined, color: blue),
-                ),
+                  IconButton(
+                    tooltip: 'Cài đặt lương',
+                    onPressed: c.busy
+                        ? null
+                        : () => openPayrollSettings(context),
+                    icon: const Icon(Icons.settings_outlined, color: blue),
+                  ),
               ],
             ),
           ],

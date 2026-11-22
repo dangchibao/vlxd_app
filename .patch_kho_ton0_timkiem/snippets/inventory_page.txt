@@ -1,0 +1,202 @@
+class InventoryPage extends StatefulWidget {
+  const InventoryPage({super.key});
+
+  @override
+  State<InventoryPage> createState() => _InventoryPageState();
+}
+
+class _InventoryPageState extends State<InventoryPage> {
+  String query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final c = Get.find<ShopController>();
+    final needle = ShopData.normalizeProductText(query);
+    final products = c.data.products.where((p) {
+      if (p.deleted || p.archivedFromLists) return false;
+      if (needle.isEmpty) return true;
+      final searchable = <String>[
+        p.code, p.name, p.size, p.supplier,
+        for (final lot in p.lots)
+          '${_inventoryLotLabel(p, lot)} ${lot['id'] ?? ''}',
+      ].join(' ');
+      return ShopData.normalizeProductText(searchable).contains(needle);
+    }).toList();
+    return ListView(
+      padding: vlxdPagePadding(context),
+      children: [
+        titleText('Kho và lô hàng'),
+        const SizedBox(height: 8),
+        hint('Theo dõi tồn thực tế, lượng đang giữ và giá vốn từng lô.'),
+        const SizedBox(height: 12),
+        TextField(
+          onChanged: (text) => setState(() => query = text),
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.search),
+            hintText: 'Tìm trong Kho: mã, tên, quy cách, nhà cung cấp, lô...',
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text('Đang hiển thị ${products.length} sản phẩm',
+            style: const TextStyle(color: Colors.blueGrey, fontSize: 12)),
+        if (products.isEmpty)
+          const EmptyState('Không tìm thấy trong kho',
+            'Thử tìm theo mã sản phẩm, tên, kích thước hoặc mã lô.',
+            Icons.search_off),
+        const SizedBox(height: 12),
+        VlxdPagedList<Product>(
+          key: ValueKey('inventory-search-$query'),
+          items: products,
+          pageSize: 10,
+          itemBuilder: (p) => Padding(
+            padding: const EdgeInsets.only(bottom: 9),
+            child: panel(
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      titleText('${p.name} ${p.size}', size: 18),
+                      hint('SKU: ${p.code}'),
+                      if (!p.active) badge('Ngừng kinh doanh'),
+                      if (p.available <= 0)
+                        badge('Hết hàng', warning: true)
+                      else if (p.minimum > 0 && p.available <= p.minimum)
+                        badge('Sắp hết hàng', warning: true),
+                      if (p.isOld(DateTime.now()))
+                        badge('Có lô tồn trên 60 ngày', warning: true),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Tồn ${area(p.stock)} ${p.unit} • Giữ ${area(p.reserved)} ${p.unit} • Khả dụng ${area(p.available)} ${p.unit}',
+                  ),
+                  hint(
+                    p.minimum > 0
+                        ? 'Cảnh báo khi tồn kho còn: ${area(p.minimum)} ${p.unit}'
+                        : 'Chưa đặt ngưỡng cảnh báo',
+                  ),
+                  const SizedBox(height: 4),
+                  if (_visibleInventoryLots(p).isNotEmpty)
+                    ExpansionTile(
+                      key: PageStorageKey('lots-${p.id}'),
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: EdgeInsets.zero,
+                      dense: true,
+                      initiallyExpanded: false,
+                      leading: const Icon(
+                        Icons.layers_outlined,
+                        size: 19,
+                        color: blue,
+                      ),
+                      title: Text(
+                        'Xem ${_visibleInventoryLots(p).length} lô hàng',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      children: [
+                        for (final l in _visibleInventoryLots(p))
+                          ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              '${_inventoryLotLabel(p, l)} • ${day(l['date'])}',
+                            ),
+                            subtitle: Text(
+                              '${area(l['area'])} ${p.unit} • Vốn ${money(l['cost'])}/${p.unit}',
+                            ),
+                            trailing: Tooltip(
+                              message:
+                                  (l['area'] == 0 &&
+                                      (l['reserved'] as int? ?? 0) == 0)
+                                  ? 'Ẩn lô hết hàng (giữ lịch sử)'
+                                  : 'Lô đang có tồn hoặc giữ: không thể ẩn',
+                              child: IconButton(
+                                icon: const Icon(
+                                  Icons.visibility_off_outlined,
+                                  color: Colors.orange,
+                                ),
+                                onPressed: c.busy
+                                    ? null
+                                    : () =>
+                                          hideEmptyInventoryLot(context, p, l),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  const SizedBox(height: 5),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () => receiveStock(context, p),
+                        icon: const Icon(Icons.add_box_outlined),
+                        label: const Text('Nhập hàng'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => inspectStock(context, p),
+                        icon: const Icon(Icons.fact_check_outlined),
+                        label: const Text('Kiểm kê / ảnh kho'),
+                      ),
+                      if (c.actor?.canAdmin == true &&
+                          p.lots.any(
+                            (l) =>
+                                l['hiddenFromInventory'] == true &&
+                                (l['area'] as int? ?? 0) == 0 &&
+                                (l['reserved'] as int? ?? 0) == 0,
+                          ))
+                        TextButton.icon(
+                          icon: const Icon(Icons.visibility_outlined),
+                          label: const Text('Xem lô đã ẩn'),
+                          onPressed: () => showHiddenInventoryLots(context, p),
+                        ),
+                      if (c.actor?.canAdmin == true &&
+                          p.lots.any(
+                            (l) =>
+                                l['lotNumber'] is! int ||
+                                (l['lotNumber'] as int) <= 0,
+                          ))
+                        TextButton.icon(
+                          icon: const Icon(Icons.push_pin_outlined),
+                          label: const Text('Đánh số lô cũ'),
+                          onPressed: () => attempt(() async {
+                            await c.change(
+                              (d, a) => d.assignMissingLotNumbers(p.id, a),
+                            );
+                          }),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (c.data.stockMoves.isNotEmpty)
+          panel(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                titleText('Biến động gần đây', size: 18),
+                ...c.data.stockMoves
+                    .take(20)
+                    .map(
+                      (m) => ListTile(
+                        title: Text('${m['type']} • ${m['product']}'),
+                        subtitle: Text(day(m['at'])),
+                        trailing: Text(
+                          '${area(m['area'])} ${c.data.products.where((p) => p.code == m['product']).firstOrNull?.unit ?? 'm²'}',
+                        ),
+                      ),
+                    ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}

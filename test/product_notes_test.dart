@@ -88,7 +88,12 @@ void main() {
         c.query = p.code;
         await tester.pumpWidget(const BayHaiApp());
         await tester.pumpAndSettle();
-        await tester.tap(find.byIcon(Icons.add_circle).first);
+        if (width < 600) {
+          // Mobile UI uses a compact action keyed by product ID.
+          await tester.tap(find.byKey(ValueKey('mobile-add-to-cart-${p.id}')));
+        } else {
+          await tester.tap(find.byIcon(Icons.add_circle).first);
+        }
         await tester.pumpAndSettle();
         expect(find.text('Theo thùng'), findsNothing);
         final quantity = find.byWidgetPredicate(

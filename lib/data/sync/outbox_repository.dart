@@ -129,6 +129,17 @@ class OutboxRepository {
         .get();
   }
 
+  /// Never change base units while this device has any unresolved offline
+  /// receipt/sale/payment. Other devices must also be checked by the operator.
+  Future<bool> hasUnsettledOperations() async {
+    final rows =
+        await (db.select(db.pendingOperations)
+              ..where((t) => t.status.isIn(['pending', 'syncing', 'failed']))
+              ..limit(1))
+            .get();
+    return rows.isNotEmpty;
+  }
+
   // Đánh dấu thao tác đã được máy chủ xác nhận.
   Future<void> markSynced(String id) async {
     await (db.update(

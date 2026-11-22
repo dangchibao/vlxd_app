@@ -90,6 +90,13 @@ class FirestoreRepository implements TransactionalShopRepository {
   Stream<ShopData> watch() => meta
       .snapshots(includeMetadataChanges: true)
       .where((snapshot) => !snapshot.metadata.isFromCache)
+      // A metadata-only event must not queue a second eight-collection read.
+      // Those redundant reads can delay the newest product/image in the UI.
+      .distinct(
+        (previous, next) =>
+            previous.data()?['revision'] == next.data()?['revision'] &&
+            previous.data()?['generation'] == next.data()?['generation'],
+      )
       .asyncMap((_) => load());
   @override
   Future<void> save(ShopData data) =>

@@ -95,6 +95,7 @@ class ShopController extends GetxController {
             'productId': l.productId,
             'area': l.area,
             'note': l.note,
+            if (l.saleUnit.isNotEmpty) 'saleUnit': l.saleUnit,
           },
         )
         .toList();
@@ -164,6 +165,9 @@ class ShopController extends GetxController {
           productId,
           entry['area'] as int,
           note: entry['note'] as String,
+          saleUnit: entry['saleUnit'] is String
+              ? entry['saleUnit'] as String
+              : '',
         ),
       );
     }
@@ -367,25 +371,30 @@ class ShopController extends GetxController {
   // Automatically derived filters: no SKU-code convention and no Firestore
   // schema change. Suggestions are not saved as authoritative categories.
   List<String> get catalogCategories {
-    final values = data.products
-        .map(ProductDiscovery.suggestedCategory)
-        .toSet().toList()..sort();
+    final values =
+        data.products.map(ProductDiscovery.suggestedCategory).toSet().toList()
+          ..sort();
     return ['Tất cả', ...values];
   }
 
   List<String> get catalogSpecifications {
-    final values = data.products
-        .where((p) => catalogCategory == 'Tất cả' ||
-            ProductDiscovery.suggestedCategory(p) == catalogCategory)
-        .map((p) => ProductDiscovery.displaySpecification(p.size))
-        .where((value) => value.isNotEmpty)
-        .toSet().toList()..sort();
+    final values =
+        data.products
+            .where(
+              (p) =>
+                  catalogCategory == 'Tất cả' ||
+                  ProductDiscovery.suggestedCategory(p) == catalogCategory,
+            )
+            .map((p) => ProductDiscovery.displaySpecification(p.size))
+            .where((value) => value.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
     return ['Tất cả', ...values];
   }
 
   bool _matchesCatalogSpecification(Product p) =>
-      group == 'Tất cả' ||
-      ProductDiscovery.sameSpecification(p.size, group);
+      group == 'Tất cả' || ProductDiscovery.sameSpecification(p.size, group);
 
   List<Product> get catalogProducts => data.products.where((p) {
     final statusMatches = switch (catalogStatus) {
@@ -403,11 +412,33 @@ class ShopController extends GetxController {
   }).toList();
 
   List<Product> get visibleProducts => data.products
-      .where((p) =>
-          p.active && !p.deleted && !p.archivedFromLists &&
-          _matchesCatalogSpecification(p) &&
-          ProductDiscovery.hasText(p, query))
+      .where(
+        (p) =>
+            p.active &&
+            !p.deleted &&
+            !p.archivedFromLists &&
+            _matchesCatalogSpecification(p) &&
+            ProductDiscovery.hasText(p, query),
+      )
       .toList();
+
+  /// Guard one-time unit correction against unsettled work on THIS device.
+  /// Caller must ensure other devices have also finished syncing.
+  Future<void> verifyUnitCorrectionReady() async {
+    if (isLive) {
+      if (showingOfflineSnapshot || syncing || syncError != null) {
+        throw StateError(
+          'Phải tải dữ liệu Firebase mới nhất trước khi sửa đơn vị.',
+        );
+      }
+      final outbox = _checkoutOutbox;
+      if (outbox == null || await outbox.hasUnsettledOperations()) {
+        throw StateError(
+          'Thiết bị đang có đơn/phiếu offline chưa đồng bộ hoặc cần đối chiếu.',
+        );
+      }
+    }
+  }
 
   Future<T> change<T>(T Function(ShopData d, Actor actor) operation) async {
     if (busy) {
@@ -499,7 +530,7 @@ class ShopController extends GetxController {
   // CART
   // ============================================================
 
-  void addCart(Product p, int area, {String? note}) {
+  void addCart(Product p, int area, {String? note, String? saleUnit}) {
     _ensureCartEditable();
     if (area <= 0) {
       throw ArgumentError('Số lượng phải lớn hơn 0.');
@@ -511,10 +542,18 @@ class ShopController extends GetxController {
       throw ArgumentError('Lưu ý tối đa 1.000 ký tự.');
     }
 
-    final index = cart.indexWhere((line) => line.productId == p.id);
+    final chosenUnit = saleUnit?.isNotEmpty == true ? saleUnit! : p.packUnit;
+    if (chosenUnit != p.unit && !p.isSecondaryUnit(chosenUnit)) {
+      throw ArgumentError('Đơn vị bán không phù hợp với sản phẩm.');
+    }
+    final index = cart.indexWhere(
+      (line) =>
+          line.productId == p.id &&
+          (line.saleUnit.isEmpty ? p.packUnit : line.saleUnit) == chosenUnit,
+    );
 
     if (index < 0) {
-      cart.add(CartLine(p.id, area, note: nextNote));
+      cart.add(CartLine(p.id, area, note: nextNote, saleUnit: chosenUnit));
     } else {
       final merged = mergeLineNotes([cart[index].note, nextNote]);
 
@@ -522,17 +561,33 @@ class ShopController extends GetxController {
         throw ArgumentError('Lưu ý tối đa 1.000 ký tự.');
       }
 
-      cart[index] = CartLine(p.id, cart[index].area + area, note: merged);
+      cart[index] = CartLine(
+        p.id,
+        cart[index].area + area,
+        note: merged,
+        saleUnit: chosenUnit,
+      );
     }
 
     update();
   }
 
-  int get subtotal => cart.fold(
-    0,
-    (total, line) =>
-        total + lineMoney(line.area, data.product(line.productId).price),
-  );
+  int get subtotal {
+    // Round money once per product, as checkout and offline preflight do.
+    final quantities = <String, int>{};
+    for (final line in cart) {
+      quantities.update(
+        line.productId,
+        (n) => n + line.area,
+        ifAbsent: () => line.area,
+      );
+    }
+    return quantities.entries.fold<int>(
+      0,
+      (total, entry) =>
+          total + lineMoney(entry.value, data.product(entry.key).price),
+    );
+  }
 
   // ============================================================
   // OFFLINE CHECKOUT - PREPARE
@@ -612,8 +667,11 @@ class ShopController extends GetxController {
 
     final quantities = <String, int>{};
     for (final line in cart) {
-      quantities.update(line.productId, (v) => v + line.area,
-          ifAbsent: () => line.area);
+      quantities.update(
+        line.productId,
+        (v) => v + line.area,
+        ifAbsent: () => line.area,
+      );
     }
     for (final entry in quantities.entries) {
       final product = data.product(entry.key);
@@ -623,7 +681,9 @@ class ShopController extends GetxController {
         }
         current.requireAdmin();
         if (negativeReason.trim().length < 5) {
-          throw StateError('Bán âm cần chủ xác nhận và ghi lý do ít nhất 5 ký tự.');
+          throw StateError(
+            'Bán âm cần chủ xác nhận và ghi lý do ít nhất 5 ký tự.',
+          );
         }
       }
     }
@@ -642,6 +702,7 @@ class ShopController extends GetxController {
           productId: line.productId,
           area: line.area,
           note: line.note,
+          saleUnit: line.saleUnit,
           quotedPrice: product.price,
           quotedRatio: product.ratio,
         ),
@@ -791,7 +852,8 @@ class ShopController extends GetxController {
         final currentLine = cart[i];
         if (savedLine.productId != currentLine.productId ||
             savedLine.area != currentLine.area ||
-            savedLine.note != currentLine.note) {
+            savedLine.note != currentLine.note ||
+            savedLine.saleUnit != currentLine.saleUnit) {
           throw StateError(
             'Sản phẩm trong giỏ khác đơn đã lưu. Giỏ vẫn được khóa.',
           );

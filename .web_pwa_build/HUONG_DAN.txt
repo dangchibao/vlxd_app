@@ -1,0 +1,29 @@
+VLXD BAY HAI - BUILD WEB + PWA (Windows PowerShell 5.1)
+
+MUC DICH
+- Xay dung Flutter Web release tu ma nguon moi nhat tren D:\app\vlxd_app.
+- Kiem tra manifest, icons, offline-sw.js, bootstrap.js.
+- Tao build/web/offline-manifest.js tu CAC FILE THUC TE da build de worker tim thay danh sach cache.
+- Co hai buoc deploy rieng: preview va live, phai nhap xac nhan.
+- KHONG sua code Flutter, database, Firestore Rules hoac tai khoan.
+
+CAI DAT
+1) Dong moi cua so ZIP. GIAI NEN TOAN BO file ZIP vao D:\app\vlxd_app\.web_pwa_build (khong chay CMD trong ZIP).
+2) Nhan dup 01_BUILD_WEB_PWA.cmd. Neu Flutter test hoac web build loi, script dung va in ra log.
+3) Neu build thanh cong, co the chay 02_DANG_WEB_XEM_TRUOC.cmd de lay URL preview.
+4) Thu tren PC va dien thoai. Sau khi xac nhan moi chay 03_DANG_WEB_CHINH_THUC.cmd.
+5) Khi live thanh cong, URL mac dinh du kien: https://vlxd-bay-hai.web.app
+
+CAI PWA
+- Android Chrome: mo URL HTTPS > menu ba cham > Install app / Add to Home screen.
+- iPhone Safari: mo URL HTTPS > Share > Add to Home Screen.
+- PC Edge/Chrome: mo URL HTTPS > Install app (neu du dieu kien).
+
+QUAN TRONG
+- Flutter hien tai khong tu sinh service worker cache; project nay da co custom offline-sw.js.
+- Offline cache tai nguyen giao dien KHONG dam bao moi thao tac ban hang offline deu duoc dong bo.
+- Can thu: dang nhap, luu don hang offline, dong app/mo lai, ket noi lai, kiem tra khong trung don/khong mat kho.
+- Dang nhap voi URL Hosting co the can bo sung Authorized domains tai Firebase Auth.
+- Preview channel URL co the khac ten mien chinh; xem URL do Firebase CLI in ra.
+- Chay script live se thay the Hosting site, nhung KHONG deploy Firestore Rules.
+- KHONG dung firebase deploy khong co --only hosting vi file firebase.json co ca Firestore Rules.

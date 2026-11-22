@@ -8,6 +8,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 // ignore: deprecated_member_use
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
@@ -28,10 +29,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 import '../domain/shop.dart';
+import '../domain/unit_rules.dart';
 import '../domain/product_discovery.dart';
 import '../domain/invoice_filter.dart';
 import 'print_service.dart';
 import '../utils/money_input_formatter.dart';
+import '../utils/product_image_codec.dart';
 
 import '../data/sync/outbox_repository.dart';
 import '../data/sync/offline_book_operation.dart';
@@ -43,6 +46,8 @@ import 'vlxd_theme.dart';
 import 'display_preferences.dart';
 part 'catalog.dart';
 part 'sales.dart';
+part 'mobile_sales.dart';
+part 'mobile_products.dart';
 part 'operations.dart';
 part 'authentication.dart';
 part 'accounts.dart';
@@ -59,6 +64,8 @@ const blue = Color(0xFF086EEB);
 const ink = Color(0xFF142D50);
 String money(num v) => '${NumberFormat.decimalPattern('vi').format(v)} đ';
 String area(num v) => NumberFormat('0.##', 'vi').format(v / 10000);
+String conversionHint(Product p) =>
+    '1 ${p.conversionFromUnit} = ${NumberFormat('0.####', 'vi').format(p.conversionDisplayFactor)} ${p.conversionToUnit}';
 String day(String v) =>
     DateFormat('dd/MM/yyyy HH:mm').format(DateTime.parse(v).toLocal());
 double decimal(String v) =>
@@ -411,12 +418,16 @@ class DashboardPage extends StatelessWidget {
               .where((l) => (l['unit'] ?? 'm²') == 'm²')
               .fold<int>(0, (v, l) => v + (l['area'] as int)),
     );
-    final low = c.data.products
-        .where((p) => p.active && p.available <= p.minimum)
-        .toList();
-    final old = c.data.products
-        .where((p) => p.active && p.isOld(DateTime.now()))
-        .toList();
+    final heldOrders = c.data.orders
+        .where((o) => o['status'] == 'Giữ hàng')
+        .length;
+    final activeTrips = c.data.deliveries
+        .where((d) => d['status'] == 'Đang giao')
+        .length;
+    final debtCustomers = c.data.customers
+        .where((customer) => c.data.debt(customer['id'] as String) > 0)
+        .length;
+
     return ListView(
       padding: vlxdPagePadding(context),
       children: [
@@ -448,7 +459,7 @@ class DashboardPage extends StatelessWidget {
           builder: (context, b) {
             final cols = b.maxWidth >= 850
                 ? 4
-                : b.maxWidth >= 420
+                : b.maxWidth >= 330
                 ? 2
                 : 1;
             return Wrap(
@@ -496,27 +507,75 @@ class DashboardPage extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              titleText('Việc cần chú ý', size: 18),
-              const SizedBox(height: 12),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(
-                  Icons.inventory_2_outlined,
-                  color: Colors.orange,
-                ),
-                title: Text('${low.length} mẫu sắp hết hàng'),
-                subtitle: Text(low.map((p) => p.name).join(' • ')),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => c.navigate(3),
+              titleText('Công việc đang mở', size: 18),
+              const SizedBox(height: 6),
+              hint(
+                'Ưu tiên những việc còn phải xử lý, không hiển thị cảnh báo bằng 0.',
               ),
+              if (heldOrders > 0)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.shopping_bag_outlined, color: blue),
+                  title: Text('$heldOrders đơn đang giữ hàng'),
+                  subtitle: const Text('Kiểm tra và xử lý đơn chưa hoàn tất'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => c.navigate(9),
+                ),
+              if (activeTrips > 0)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.local_shipping_outlined,
+                    color: blue,
+                  ),
+                  title: Text('$activeTrips chuyến đang giao'),
+                  subtitle: const Text('Theo dõi giao hàng chưa hoàn thành'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => c.navigate(4),
+                ),
+              if (debtCustomers > 0)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.account_balance_wallet_outlined,
+                    color: blue,
+                  ),
+                  title: Text('$debtCustomers khách hàng còn công nợ'),
+                  subtitle: const Text(
+                    'Mở sổ công nợ để đối chiếu và thu tiền',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => c.navigate(5),
+                ),
+              if (heldOrders == 0 && activeTrips == 0 && debtCustomers == 0)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    'Không có đơn giữ, chuyến giao hoặc công nợ tồn đọng.',
+                  ),
+                ),
               const Divider(),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.schedule, color: blue),
-                title: Text('${old.length} mẫu có lô tồn trên 60 ngày'),
-                subtitle: const Text('Xem từng lô để lên kế hoạch xả kho'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => c.navigate(3),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.warehouse_outlined),
+                    label: const Text('Mở Kho / nhập hàng'),
+                    onPressed: () => c.navigate(3),
+                  ),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.local_shipping_outlined),
+                    label: const Text('Giao hàng'),
+                    onPressed: () => c.navigate(4),
+                  ),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.payments_outlined),
+                    label: const Text('Sổ công nợ'),
+                    onPressed: () => c.navigate(5),
+                  ),
+                ],
               ),
             ],
           ),
@@ -564,12 +623,16 @@ class DashboardPage extends StatelessWidget {
             const SizedBox(height: 7),
             hint(label),
             const SizedBox(height: 7),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                color: color,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                value,
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: color,
+                ),
               ),
             ),
           ],
@@ -649,8 +712,8 @@ Widget field(
       hintText: hintText,
       helperText: helperText,
       helperMaxLines: 3,
-      floatingLabelBehavior: FloatingLabelBehavior.always,
-      alignLabelWithHint: true,
+      floatingLabelBehavior: FloatingLabelBehavior.auto,
+      alignLabelWithHint: false,
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
     ),
   ),

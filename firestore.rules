@@ -115,8 +115,15 @@ service cloud.firestore {
       match /products/{id} {
         function product() {
           let p = request.resource.data.value;
-          return p.keys().hasOnly(['id','code','name','size','supplier','price','ratio','minimum','active','images','lots','note','unit','deleted','archivedFromLists'])
+          return p.keys().hasOnly(['id','code','name','size','supplier','price','ratio','minimum','active','images','lots','note','unit','secondaryUnit','deleted','archivedFromLists'])
             && (!('unit' in p) || (p.unit is string && p.unit.size() > 0 && p.unit.size() <= 40))
+            && (!('secondaryUnit' in p) ||
+                (p.secondaryUnit is string &&
+                 ((p.secondaryUnit == '' && p.ratio == 0) ||
+                  (p.secondaryUnit.size() > 0 &&
+                   p.secondaryUnit.size() <= 40 &&
+                   p.secondaryUnit != p.get('unit', 'm²') &&
+                   p.ratio > 0))))
             && p.code is string && p.name is string && p.name.size() > 0
             && p.price is int && p.price > 0 && p.price <= 1000000000
             && p.ratio is int && p.ratio >= 0 && p.minimum is int && p.minimum >= 0
@@ -132,11 +139,16 @@ service cloud.firestore {
           && request.resource.data.value.get('deleted', false) == false
           && request.resource.data.value.get('archivedFromLists', false) == false;
         allow update: if envelope(id) && product()
+          // Old clients must not silently drop an already-configured secondary unit.
+          && (resource.data.value.get('secondaryUnit', '') == '' ||
+              (('secondaryUnit' in request.resource.data.value) &&
+               request.resource.data.value.secondaryUnit is string &&
+               request.resource.data.value.secondaryUnit.size() > 0))
           && (request.resource.data.value.code == resource.data.value.code
               || resource.data.value.lots.size() == 0)
           && (owner() || request.resource.data.value.diff(resource.data.value)
               .affectedKeys().hasOnly(['code','name','size','supplier','price',
-                'ratio','minimum','active','images','lots','note','unit']));
+                'ratio','minimum','active','images','lots','note','unit','secondaryUnit']));
       }
       match /customers/{id} {
         function validCustomer() {
