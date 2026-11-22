@@ -24,6 +24,9 @@ if (-not $SkipTests) {
 }
 
 if ($RunBrowserQa) {
+  if (-not (Test-Path -LiteralPath '.qa/offline-browser.cjs')) {
+    throw 'Missing local .qa/offline-browser.cjs. Use the checked-in integration_test suite with Firebase Emulator instead.'
+  }
   # Only a demo project is acceptable. User must start Auth/Firestore emulators.
   foreach ($port in @(9099, 8080)) {
     $tcp = New-Object System.Net.Sockets.TcpClient
@@ -41,7 +44,7 @@ if ($RunBrowserQa) {
 }
 
 if ($BuildWeb) {
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\tools\build-web-offline.ps1' -Output 'build/web'
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\tools\build-web-offline.ps1' -DisableAutoSync -Output 'build/web'
   if ($LASTEXITCODE -ne 0) { throw 'Production web build failed.' }
   Write-Warning 'Built production web files with auto-sync disabled. This is NOT authorization to deploy.'
 }

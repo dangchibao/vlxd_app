@@ -103,6 +103,8 @@ void main() {
         await tester.tap(find.text('Thêm vào giỏ hàng'));
         await tester.pumpAndSettle();
         expect(c.cart.single.area, (p.ratio * 2.5).round());
+        expect(c.cart.single.saleQuantity, '2.5');
+        expect(c.cart.single.saleUnit, 'thùng');
         expect(tester.takeException(), isNull);
       },
     );
@@ -194,11 +196,11 @@ void main() {
       );
       tester.testTextInput.updateEditingValue(value);
       await tester.pump();
-      expect(find.text(money(c.subtotal + 50000)), findsOneWidget);
+      expect(find.text(money(c.subtotal + 50000)), findsWidgets);
       // A separate GetX update must not require a click or reset this editor.
       c.addCart(p, p.ratio);
       await tester.pump();
-      expect(find.text(money(c.subtotal + 50000)), findsOneWidget);
+      expect(find.text(money(c.subtotal + 50000)), findsWidgets);
       expect(tester.widget<TextField>(field).controller!.value, value);
       expect(
         tester

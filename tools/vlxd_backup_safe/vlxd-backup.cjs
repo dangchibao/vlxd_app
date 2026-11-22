@@ -43,7 +43,21 @@ function decode(x) {
   return x;
 }
 function fileBody(doc) {const {sha256,...rest}=doc; if(digest(JSON.stringify(rest))!==sha256) fatal('File backup không khớp SHA-256');return rest;}
-function readBackup() {if(!file || !fs.existsSync(file))fatal('Thiếu --file hoặc file không tồn tại.');const body=fileBody(JSON.parse(fs.readFileSync(file,'utf8')));if(body.format!=='vlxd-firestore-snapshot-1')fatal('Sai định dạng.');return body;}
+function readBackup() {
+  if(!file || !fs.existsSync(file))fatal('Thiếu --file hoặc file không tồn tại.');
+  const body=fileBody(JSON.parse(fs.readFileSync(file,'utf8')));
+  if(body.format!=='vlxd-firestore-snapshot-1' || !body.collections || typeof body.collections!=='object' || Array.isArray(body.collections))fatal('Sai định dạng.');
+  for(const [name,docs] of Object.entries(body.collections)) {
+    if(!ALLOWED.includes(name) || !Array.isArray(docs))fatal('Collection không được phép trong bản sao.');
+    const ids=new Set();
+    for(const doc of docs) {
+      if(typeof doc.id!=='string' || !doc.id || doc.id.includes('/') || ['.','..'].includes(doc.id) || ids.has(doc.id) || !doc.data || typeof doc.data!=='object' || Array.isArray(doc.data))fatal('Chứng từ sao lưu không hợp lệ hoặc trùng mã.');
+      ids.add(doc.id);
+      decode(doc.data);
+    }
+  }
+  return body;
+}
 (async()=>{
   if(command==='verify'||command==='plan') {
     const b=readBackup();
@@ -95,16 +109,18 @@ function readBackup() {if(!file || !fs.existsSync(file))fatal('Thiếu --file ho
     if(!existing.empty)fatal('Staging không trống tại '+name);
   }
   // The destination is empty; no production rows are touched.
+  // A partial/competing restore stays visibly occupied and cannot be overwritten.
+  await metaRef.create({restoreStatus:'restoring',restoredFrom:b.store});
   for(const [name,docs] of Object.entries(b.collections)){
     for(let i=0;i<docs.length;i+=200){
       const batch=db.batch();
       for(const d of docs.slice(i,i+200)){
-        batch.set(db.doc(`${prefix}/${name}/${d.id}`),decode(d.data));
+        batch.create(db.doc(`${prefix}/${name}/${d.id}`),decode(d.data));
       }
       await batch.commit();
     }
     console.log('staging '+name+' : '+docs.length);
   }
-  await metaRef.set({...(decode(b.meta)||{}),restoredFrom:b.store,restoredAt:admin.firestore.FieldValue.serverTimestamp()});
+  await metaRef.set({...(decode(b.meta)||{}),restoreStatus:'complete',restoredFrom:b.store,restoredAt:admin.firestore.FieldValue.serverTimestamp()});
   console.log('STAGING RESTORE DONE. Không tác động production.');
 })().catch(err=>fatal(err?.message??String(err)));

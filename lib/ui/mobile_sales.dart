@@ -157,7 +157,7 @@ class _VlxdMobileSalesViewState extends State<VlxdMobileSalesView> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(width: 84, height: 116, child: ProductPicture(p)),
+                SizedBox(width: 64, height: 88, child: ProductPicture(p)),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -219,7 +219,7 @@ class _VlxdMobileSalesViewState extends State<VlxdMobileSalesView> {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        'Còn ${area(p.available)} ${p.unit}',
+                        '${productAvailability(p)} • ${area(p.available)} ${p.unit}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(

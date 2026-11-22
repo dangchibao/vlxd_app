@@ -94,11 +94,18 @@ test('uncoordinated updates and stale revisions are denied', async () => {
   await assertSucceeds(commit(db('sales'),'sales','m2',[['products',{...product,price:200000}]],2));
 });
 test('owner and sales can edit payroll, other roles remain blocked', async () => {
+  await env.withSecurityRulesDisabled(async c => {
+    for (const [uid,role,active] of [['owner','owner',true],['sales','sales',true],['driver','driver',true],['locked','sales',false]]) {
+      await setDoc(doc(c.firestore(),`stores/hai-soc/members/${uid}`),{role,active,displayName:uid,mustChangePassword:false});
+    }
+  });
   const value = {id:'N1',name:'Hùng',salary:8000000,advance:0};
-  await assertSucceeds(commit(db('sales'),'sales','m1',[['payroll',value]]));
-  await assertSucceeds(commit(db('owner'),'owner','m2',[['payroll',value]],2));
-  for (const uid of ['driver','locked','unknown']) await assertFails(commit(db(uid),uid,'denied',[['payroll',value]],3));
-  await assertSucceeds(getDoc(doc(db('sales'), `${path}/payroll/N1`)));
+  for (const store of ['bay-hai','hai-soc']) {
+    await assertSucceeds(commit(db('sales'),'sales','m1',[['payroll',value]],1,store));
+    await assertSucceeds(commit(db('owner'),'owner','m2',[['payroll',value]],2,store));
+    for (const uid of ['driver','locked','unknown']) await assertFails(commit(db(uid),uid,'denied',[['payroll',value]],3,store));
+    await assertSucceeds(getDoc(doc(db('sales'), `stores/${store}/payroll/N1`)));
+  }
 });
 test('sales cannot grant roles, disable another user or self-promote', async () => {
   await assertFails(updateDoc(doc(db('sales'),'users/sales'),{role:'owner'}));

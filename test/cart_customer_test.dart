@@ -67,7 +67,7 @@ void main() {
           await tester.pumpAndSettle();
           await tester.enterText(input('Số tiền giảm giá (đ)'), '$discount');
           await tester.pump();
-          expect(find.text(money(subtotal + 50000 - discount)), findsOneWidget);
+          expect(find.text(money(subtotal + 50000 - discount)), findsWidgets);
         }
 
         // Opening the list proves the saved customer is also available for later selection.

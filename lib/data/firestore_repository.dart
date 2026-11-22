@@ -12,6 +12,11 @@ import 'data_generation.dart';
 class FirestoreRepository implements TransactionalShopRepository {
   final FirebaseFirestore firestore;
   final String storeId;
+  ({ShopData data, int revision, String? generation})? _checkpoint;
+
+  /// Rows downloaded by this repository, excluding metadata and empty queries.
+  /// Diagnostic count, not a Firestore billing estimate.
+  int rowDocumentsRead = 0;
   FirestoreRepository(this.firestore, {this.storeId = 'bay-hai'});
   static const collections = [
     'products',
@@ -50,25 +55,51 @@ class FirestoreRepository implements TransactionalShopRepository {
           'Dữ liệu cửa hàng đã được làm mới. Hãy cập nhật ứng dụng.',
         );
       }
-      final snapshots = await Future.wait(
-        collections.map(
-          (name) => rows(name).get(const GetOptions(source: Source.server)),
-        ),
+      final checkpoint = _checkpoint;
+      final incremental =
+          checkpoint != null &&
+          checkpoint.generation == generation &&
+          checkpoint.revision <= revision;
+      final snapshots = incremental && checkpoint.revision == revision
+          ? <QuerySnapshot<Json>>[]
+          : await Future.wait(
+              collections.map((name) {
+                final Query<Json> query = incremental
+                    ? rows(name)
+                          .where('revision', isGreaterThan: checkpoint.revision)
+                    : rows(name);
+                return query.get(const GetOptions(source: Source.server));
+              }),
+            );
+      rowDocumentsRead += snapshots.fold(
+        0,
+        (totalRows, snapshot) => totalRows + snapshot.docs.length,
       );
       final after = await meta.get(const GetOptions(source: Source.server));
       if (revision != ((after.data()?['revision'] as int?) ?? 0) ||
           generation != after.data()?['generation']) {
         continue;
       }
-      final json = <String, dynamic>{'schema': 1};
-      for (var i = 0; i < collections.length; i++) {
-        json[collections[i]] = snapshots[i].docs.map((doc) {
+      // Rows are soft-deleted by the domain. Physical resets change generation.
+      // Keep this checkpoint only in memory; a new repository starts with a full read.
+      final json = incremental
+          ? checkpoint.data.copy().toJson()
+          : <String, dynamic>{'schema': 1};
+      for (var i = 0; i < snapshots.length; i++) {
+        final changed = snapshots[i].docs.map((doc) {
           final value = Json.from(doc.data()['value'] as Map);
           if (value['id'] != doc.id) {
             throw StateError('Sai mã chứng từ ${doc.reference.path}.');
           }
           return value;
         }).toList();
+        json[collections[i]] = incremental
+            ? <String, Json>{
+                for (final row in json[collections[i]] as List)
+                  (row as Json)['id'] as String: row,
+                for (final row in changed) row['id'] as String: row,
+              }.values.toList()
+            : changed;
       }
       final data = ShopData.fromJson(json);
       for (final list in [
@@ -79,6 +110,17 @@ class FirestoreRepository implements TransactionalShopRepository {
       ]) {
         list.sort((a, b) => '${b['at'] ?? ''}'.compareTo('${a['at'] ?? ''}'));
       }
+      final latest = _checkpoint;
+      if (latest != null &&
+          latest.generation == generation &&
+          latest.revision > revision) {
+        continue;
+      }
+      _checkpoint = (
+        data: data.copy(),
+        revision: revision,
+        generation: generation,
+      );
       return (data: data, revision: revision, generation: generation);
     }
     throw StateError('Dữ liệu đang thay đổi liên tục. Vui lòng tải lại.');

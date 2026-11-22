@@ -51,6 +51,8 @@ void main() {
       c.navigate(9);
       await tester.pumpWidget(const BayHaiApp());
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('invoice-filter-toggle')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byType(DropdownButtonFormField<InvoicePayment>));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Còn nợ').last);

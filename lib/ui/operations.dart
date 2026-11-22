@@ -177,6 +177,7 @@ class InventoryPage extends StatefulWidget {
 
 class _InventoryPageState extends State<InventoryPage> {
   String query = '';
+  bool dense = !VlxdDisplayPreferences.instance.comfortableDensity;
 
   @override
   Widget build(BuildContext context) {
@@ -223,11 +224,21 @@ class _InventoryPageState extends State<InventoryPage> {
             Icons.search_off,
           ),
         const SizedBox(height: 12),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilterChip(
+            label: const Text('Danh sách gọn'),
+            selected: dense,
+            onSelected: (value) => setState(() => dense = value),
+          ),
+        ),
         VlxdPagedList<Product>(
-          key: ValueKey('inventory-search-$query'),
+          key: ValueKey('inventory-search-$query-$dense'),
           items: products,
-          pageSize: 10,
-          itemBuilder: (p) => Padding(
+          pageSize: dense ? 20 : 10,
+          itemBuilder: (p) => dense
+              ? _compactInventoryProduct(context, c, p)
+              : Padding(
             padding: const EdgeInsets.only(bottom: 9),
             child: panel(
               Column(
@@ -238,26 +249,25 @@ class _InventoryPageState extends State<InventoryPage> {
                     runSpacing: 8,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      titleText('${p.name} ${p.size}', size: 18),
+                      titleText('${p.name} ${p.size}', size: dense ? 16 : 18),
                       hint('SKU: ${p.code}'),
                       if (!p.active) badge('Ngừng kinh doanh'),
-                      if (p.available <= 0)
-                        badge('Hết hàng', warning: true)
-                      else if (p.minimum > 0 && p.available <= p.minimum)
-                        badge('Sắp hết hàng', warning: true),
+                      if (productAvailability(p) != 'Còn hàng')
+                        badge(productAvailability(p), warning: true),
                       if (p.isOld(DateTime.now()))
                         badge('Có lô tồn trên 60 ngày', warning: true),
                     ],
                   ),
-                  const SizedBox(height: 10),
+                  SizedBox(height: dense ? 5 : 10),
                   Text(
                     'Tồn ${area(p.stock)} ${p.unit} • Giữ ${area(p.reserved)} ${p.unit} • Khả dụng ${area(p.available)} ${p.unit}',
                   ),
-                  hint(
-                    p.minimum > 0
-                        ? 'Cảnh báo khi tồn kho còn: ${area(p.minimum)} ${p.unit}'
-                        : 'Chưa đặt ngưỡng cảnh báo',
-                  ),
+                  if (!dense)
+                    hint(
+                      p.minimum > 0
+                          ? 'Cảnh báo khi tồn kho còn: ${area(p.minimum)} ${p.unit}'
+                          : 'Chưa đặt ngưỡng cảnh báo',
+                    ),
                   const SizedBox(height: 4),
                   if (_visibleInventoryLots(p).isNotEmpty)
                     ExpansionTile(
@@ -311,7 +321,7 @@ class _InventoryPageState extends State<InventoryPage> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      if (compact)
+                      if (compact || dense)
                         IconButton.outlined(
                           tooltip: 'Nhập hàng',
                           onPressed: () => receiveStock(context, p),
@@ -323,7 +333,7 @@ class _InventoryPageState extends State<InventoryPage> {
                           icon: const Icon(Icons.add_box_outlined),
                           label: const Text('Nhập hàng'),
                         ),
-                      if (compact)
+                      if (compact || dense)
                         IconButton.outlined(
                           tooltip: 'Kiểm kê / ảnh kho',
                           onPressed: () => inspectStock(context, p),
@@ -366,6 +376,7 @@ class _InventoryPageState extends State<InventoryPage> {
                   ),
                 ],
               ),
+              padding: EdgeInsets.all(dense ? 10 : 16),
             ),
           ),
         ),
@@ -414,6 +425,247 @@ class _InventoryPageState extends State<InventoryPage> {
       ],
     );
   }
+
+  // Dense view: show stock and the two daily actions immediately. Lot history
+  // and administrative actions stay available inside the expandable details.
+  // This widget never writes inventory; existing handlers keep their checks.
+  Widget _compactInventoryProduct(
+    BuildContext context,
+    ShopController c,
+    Product p,
+  ) {
+    final lots = _visibleInventoryLots(p);
+    final status = productAvailability(p);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 6),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: Color(0xFFDCE5F0)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: ExpansionTile(
+        key: PageStorageKey('inventory-compact-${p.id}'),
+        tilePadding: const EdgeInsets.fromLTRB(12, 2, 6, 2),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+        title: Text(
+          '${p.name} ${p.size}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'SKU: ${p.code} • Khả dụng ${area(p.available)} ${p.unit}'
+              '${status == 'Còn hàng' ? '' : ' • $status'}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: status == 'Còn hàng'
+                    ? const Color(0xFF526579)
+                    : const Color(0xFFB45309),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Row(
+              children: [
+                IconButton.outlined(
+                  tooltip: 'Nhập hàng',
+                  onPressed: c.busy ? null : () => receiveStock(context, p),
+                  icon: const Icon(Icons.add_box_outlined, size: 19),
+                ),
+                const SizedBox(width: 6),
+                IconButton.outlined(
+                  tooltip: 'Kiểm kê / ảnh kho',
+                  onPressed: c.busy ? null : () => inspectStock(context, p),
+                  icon: const Icon(Icons.fact_check_outlined, size: 19),
+                ),
+                const SizedBox(width: 8),
+                if (lots.isNotEmpty)
+                  Flexible(
+                    child: Text(
+                      '${lots.length} lô',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+        children: [
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Three stats across on desktop; 2 columns / wrapped on mobile.
+              // These are display-only, calculated from the existing product model.
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final columns = constraints.maxWidth >= 660
+                      ? 3
+                      : constraints.maxWidth >= 240
+                      ? 2
+                      : 1;
+                  final factWidth =
+                      (constraints.maxWidth - (columns - 1) * 10) / columns;
+                  return Wrap(
+                    spacing: 10,
+                    runSpacing: 7,
+                    children: [
+                      _inventoryFact('Tồn thực tế', '${area(p.stock)} ${p.unit}', factWidth),
+                      _inventoryFact('Đang giữ', '${area(p.reserved)} ${p.unit}', factWidth),
+                      _inventoryFact('Khả dụng', '${area(p.available)} ${p.unit}', factWidth),
+                    ],
+                  );
+                },
+              ),
+              if (status != 'Còn hàng' || !p.active || p.isOld(DateTime.now()))
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        if (status != 'Còn hàng') badge(status, warning: true),
+                        if (!p.active) badge('Ngừng kinh doanh'),
+                        if (p.isOld(DateTime.now()))
+                          badge('Có lô tồn trên 60 ngày', warning: true),
+                      ],
+                    ),
+                  ),
+                ),
+              if (p.minimum > 0)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: hint('Cảnh báo khi tồn còn: ${area(p.minimum)} ${p.unit}'),
+                  ),
+                ),
+              if (lots.isNotEmpty)
+                ExpansionTile(
+                  key: PageStorageKey('inventory-lots-compact-${p.id}'),
+                  dense: true,
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: EdgeInsets.zero,
+                  title: Text('Xem ${lots.length} lô hàng'),
+                  children: [
+                    for (final lot in lots)
+                      ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          '${_inventoryLotLabel(p, lot)} • ${day(lot['date'])}',
+                        ),
+                        subtitle: Text(
+                          '${area(lot['area'])} ${p.unit} • '
+                          'Vốn ${money(lot['cost'])}/${p.unit}',
+                        ),
+                        trailing: Tooltip(
+                          message: (lot['area'] == 0 &&
+                                  (lot['reserved'] as int? ?? 0) == 0)
+                              ? 'Ẩn lô hết hàng (giữ lịch sử)'
+                              : 'Lô đang có tồn hoặc giữ: không thể ẩn',
+                          child: IconButton(
+                            icon: const Icon(
+                              Icons.visibility_off_outlined,
+                              color: Colors.orange,
+                            ),
+                            onPressed: c.busy
+                                ? null
+                                : () => hideEmptyInventoryLot(context, p, lot),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              if (c.actor?.canAdmin == true &&
+                  (p.lots.any(
+                        (lot) =>
+                            lot['hiddenFromInventory'] == true &&
+                            (lot['area'] as int? ?? 0) == 0 &&
+                            (lot['reserved'] as int? ?? 0) == 0,
+                      ) ||
+                      p.lots.any(
+                        (lot) =>
+                            lot['lotNumber'] is! int ||
+                            (lot['lotNumber'] as int) <= 0,
+                      )))
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 2,
+                    children: [
+                      if (p.lots.any(
+                        (lot) =>
+                            lot['hiddenFromInventory'] == true &&
+                            (lot['area'] as int? ?? 0) == 0 &&
+                            (lot['reserved'] as int? ?? 0) == 0,
+                      ))
+                        TextButton.icon(
+                          icon: const Icon(Icons.visibility_outlined),
+                          label: const Text('Xem lô đã ẩn'),
+                          onPressed: () => showHiddenInventoryLots(context, p),
+                        ),
+                      if (p.lots.any(
+                        (lot) =>
+                            lot['lotNumber'] is! int ||
+                            (lot['lotNumber'] as int) <= 0,
+                      ))
+                        TextButton.icon(
+                          icon: const Icon(Icons.push_pin_outlined),
+                          label: const Text('Đánh số lô cũ'),
+                          onPressed: () => attempt(() async {
+                            await c.change(
+                              (d, a) => d.assignMissingLotNumbers(p.id, a),
+                            );
+                          }),
+                        ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _inventoryFact(String label, String value, double width) =>
+      SizedBox(
+        width: width,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+            ),
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF17345E),
+              ),
+            ),
+          ],
+        ),
+      );
+
 }
 
 Future<void> receiveStock(BuildContext context, Product p) async {
@@ -1311,6 +1563,70 @@ Future<void> editSalary(BuildContext context, Json p) async {
   advance.dispose();
 }
 
+/// Rank only completed m² sales, using saved identity rather than today's catalog.
+List<({String name, String code, int quantity})> bestSellingTiles(
+  Iterable<Json> orders,
+) {
+  final quantities = <String, int>{};
+  final names = <String, String>{}, codes = <String, String>{};
+  var legacyRow = 0;
+  for (final order in orders.where((order) => order['status'] == 'Đã bán')) {
+    for (final line in order['lines'] as List) {
+      if ((line['unit'] ?? 'm²') != 'm²') continue;
+      final id = (line['productId'] as String? ?? '').trim();
+      // Missing IDs cannot prove two historical rows belong to one product.
+      final key = id.isEmpty ? 'legacy:${legacyRow++}' : 'product:$id';
+      names.putIfAbsent(key, () => line['name'] as String);
+      codes.putIfAbsent(key, () => line['code'] as String? ?? '');
+      quantities.update(
+        key,
+        (value) => value + (line['area'] as int),
+        ifAbsent: () => line['area'] as int,
+      );
+    }
+  }
+  return [
+    for (final entry in quantities.entries)
+      (name: names[entry.key]!, code: codes[entry.key]!, quantity: entry.value),
+  ]..sort((a, b) {
+    final byQuantity = b.quantity.compareTo(a.quantity);
+    return byQuantity != 0
+        ? byQuantity
+        : '${a.code}${a.name}'.compareTo('${b.code}${b.name}');
+  });
+}
+
+/// Aggregate completed-sale snapshot values across all product units.
+/// Product identity is immutable; legacy rows without an ID stay separate.
+List<({String name, String code, int total})> bestSellingByValue(
+  Iterable<Json> orders,
+) {
+  final totals = <String, int>{};
+  final names = <String, String>{};
+  final codes = <String, String>{};
+  var legacyRow = 0;
+  for (final order in orders.where((o) => o['status'] == 'Đã bán')) {
+    for (final line in order['lines'] as List) {
+      final amount = line['amount'];
+      if (amount is! int || amount <= 0) continue;
+      final id = (line['productId'] as String? ?? '').trim();
+      final key = id.isEmpty ? 'legacy:${legacyRow++}' : 'product:$id';
+      names.putIfAbsent(key, () => '${line['name'] ?? 'Sản phẩm'}');
+      codes.putIfAbsent(key, () => '${line['code'] ?? ''}');
+      totals.update(key, (previous) => previous + amount, ifAbsent: () => amount);
+    }
+  }
+  return [
+    for (final entry in totals.entries)
+      (name: names[entry.key]!, code: codes[entry.key]!, total: entry.value),
+  ]..sort((a, b) {
+    final byValue = b.total.compareTo(a.total);
+    return byValue != 0
+        ? byValue
+        : '${a.code}${a.name}'.compareTo('${b.code}${b.name}');
+  });
+}
+
 class ReportsPage extends StatelessWidget {
   const ReportsPage({super.key});
   @override
@@ -1318,19 +1634,8 @@ class ReportsPage extends StatelessWidget {
     final c = Get.find<ShopController>();
     final ranked = [...c.data.customers]
       ..sort((a, b) => c.data.debt(b['id']).compareTo(c.data.debt(a['id'])));
-    final totals = <String, int>{};
-    for (final o in c.data.orders.where((o) => o['status'] == 'Đã bán')) {
-      for (final line in o['lines']) {
-        if ((line['unit'] ?? 'm²') != 'm²') continue;
-        totals.update(
-          line['name'],
-          (v) => v + (line['area'] as int),
-          ifAbsent: () => line['area'],
-        );
-      }
-    }
-    final top = totals.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
+    final top = bestSellingTiles(c.data.orders);
+    final topByValue = bestSellingByValue(c.data.orders);
     return ListView(
       padding: vlxdPagePadding(context),
       children: [
@@ -1353,21 +1658,59 @@ class ReportsPage extends StatelessWidget {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      titleText('Top 10 gạch bán chạy', size: 18),
-                      if (top.isEmpty)
+                      titleText('Top 10 sản phẩm bán chạy', size: 18),
+                      hint('Đơn đã bán • Theo giá trị tiền hàng • Mọi đơn vị'),
+                      if (topByValue.isEmpty)
                         const EmptyState(
-                          'Chưa có doanh số',
-                          'Chốt một đơn đã bán để xem báo cáo.',
+                          'Chưa có sản phẩm đã bán',
+                          'Khi có đơn đã bán, các sản phẩm sẽ hiển thị tại đây.',
                           Icons.bar_chart,
                         ),
-                      ...top
-                          .take(10)
-                          .map(
+                      ...topByValue.take(10).map(
+                        (p) => ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(p.name),
+                          subtitle: p.code.isEmpty
+                              ? const Text('Dòng cũ chưa có mã sản phẩm')
+                              : Text(p.code),
+                          trailing: Text(
+                            money(p.total),
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                      const Divider(height: 16),
+                      ExpansionTile(
+                        key: const ValueKey('report-tiles-by-area'),
+                        tilePadding: EdgeInsets.zero,
+                        childrenPadding: EdgeInsets.zero,
+                        title: const Text('Xem riêng gạch theo m²'),
+                        subtitle: const Text(
+                          'Chỉ tính những mặt hàng được lưu bằng m²',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        children: [
+                          if (top.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: Text(
+                                'Chưa có đơn bán hàng theo m². Doanh số của hàng bao/cái vẫn tính ở danh sách trên.',
+                              ),
+                            ),
+                          ...top.take(10).map(
                             (p) => ListTile(
-                              title: Text(p.key),
-                              trailing: Text('${area(p.value)} m²'),
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(p.name),
+                              subtitle: Text(p.code.isEmpty
+                                  ? 'Dòng cũ chưa có mã sản phẩm'
+                                  : p.code),
+                              trailing: Text('${area(p.quantity)} m²'),
                             ),
                           ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -1386,6 +1729,8 @@ class ReportsPage extends StatelessWidget {
                           .take(10)
                           .map(
                             (p) => ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
                               title: Text(p['name']),
                               trailing: Text(money(c.data.debt(p['id']))),
                             ),

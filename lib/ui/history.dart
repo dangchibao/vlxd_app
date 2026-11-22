@@ -44,7 +44,7 @@ Future<void> createPayroll(BuildContext context) async {
               );
             }
             await Get.find<ShopController>().change((d, actor) {
-              actor.requireAdmin();
+              actor.requireAccess();
               if (d.payroll.any((p) => p['id'] == id)) return;
               if (d.payroll.any(
                 (p) =>

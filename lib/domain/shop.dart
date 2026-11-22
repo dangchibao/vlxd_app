@@ -149,11 +149,13 @@ class CartLine {
 
   /// Unit chosen for this sale line. Empty denotes a legacy/base-unit line.
   final String saleUnit;
+  final String? saleQuantity;
   const CartLine(
     this.productId,
     this.area, {
     this.note = '',
     this.saleUnit = '',
+    this.saleQuantity,
   });
 }
 
@@ -499,6 +501,9 @@ class ShopData {
       throw StateError(
         'Mã định danh sản phẩm đã tồn tại. Hãy tải lại danh sách.',
       );
+    }
+    if (p.unitLabel.trim().length > 40) {
+      throw ArgumentError('Đơn vị sản phẩm tối đa 40 ký tự.');
     }
     if (p.name.trim().isEmpty ||
         !RegExp(r'^[A-Za-z0-9_-]{1,40}$').hasMatch(p.code) ||
@@ -958,6 +963,10 @@ class ShopData {
         );
       }
       final saleProduct = product(line.productId);
+      if (line.saleQuantity != null &&
+          (line.saleUnit.isEmpty || saleDecimal(line.saleQuantity!) == '0')) {
+        throw ArgumentError('Thiếu đơn vị hoặc số lượng bán không hợp lệ.');
+      }
       if (line.saleUnit.isNotEmpty &&
           line.saleUnit != saleProduct.unit &&
           !saleProduct.isSecondaryUnit(line.saleUnit)) {
@@ -1106,6 +1115,13 @@ class ShopData {
         if (line.note.isNotEmpty) 'note': line.note,
         'unit': p.unit,
         if (line.saleUnit.isNotEmpty) 'saleUnit': line.saleUnit,
+        if (line.saleQuantity != null) ...{
+          'saleQuantity': saleDecimal(line.saleQuantity!),
+          'salePrice': salePriceSnapshot(
+            p.price,
+            p.factorForUnit(line.saleUnit),
+          ),
+        },
         'price': p.price,
         'ratio': p.ratio,
         'area': line.area,
@@ -1626,7 +1642,7 @@ class ShopData {
   }
 
   void setSalary(String id, int salary, int advance, Actor actor) {
-    actor.requireAdmin();
+    actor.requireAccess();
     if (salary < 0 || advance < 0 || advance > salary) {
       throw ArgumentError('Lương hoặc tiền ứng không hợp lệ.');
     }

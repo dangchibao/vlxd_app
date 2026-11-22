@@ -32,6 +32,7 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+/output/
 
 # Symbolication related
 app.*.symbols
@@ -60,3 +61,24 @@ docs/word_preview/
 .tools/
 *-debug.log
 firebase-debug.*
+
+# Local patch archives and distribution packages are not application source.
+/backup/legacy-patches/
+/release/
+/.firebase/
+*.bak
+*.bak2
+*.before_*
+/.barcode_*/
+/.icon_exact_*/
+/.low_stock_*/
+/.mobile_android_*/
+/.only_four_*/
+/.patch_kho_*/
+/.secondary_unit_*/
+/.short_catalog_*/
+/.ui_*/
+/.unit_correction_*/
+/.vlxd_*/
+/.web_pwa_*/
+/.windows_setup_*/

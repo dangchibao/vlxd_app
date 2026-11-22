@@ -196,10 +196,11 @@ void main() {
     expect(() => d.finishDelivery('GH-1', owner), throwsStateError);
   });
 
-  test('payroll mutation is reserved for owner', () {
+  test('payroll mutation is available to owner and sales', () {
     final d = ShopData.empty();
     d.payroll.add({'id': 'NV1', 'salary': 5000000, 'advance': 0});
-    expect(() => d.setSalary('NV1', 6000000, 0, sales), throwsStateError);
+    d.setSalary('NV1', 6000000, 0, sales);
+    expect(d.payroll.first['salary'], 6000000);
     d.setSalary('NV1', 6000000, 0, owner);
     expect(d.payroll.first['salary'], 6000000);
   });

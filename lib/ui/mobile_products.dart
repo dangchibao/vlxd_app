@@ -160,14 +160,14 @@ class VlxdMobileProductsView extends StatelessWidget {
       key: ValueKey('mobile-catalog-card-${p.id}'),
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(width: 60, height: 68, child: ProductPicture(p)),
+                SizedBox(width: 44, height: 50, child: ProductPicture(p)),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -216,7 +216,7 @@ class VlxdMobileProductsView extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        'Tồn ${area(p.available)} ${p.unit}',
+                        '${productAvailability(p)} • Khả dụng ${area(p.available)} ${p.unit}',
                         style: const TextStyle(
                           fontSize: 12,
                           color: Color(0xFF147B55),
@@ -250,6 +250,12 @@ class VlxdMobileProductsView extends StatelessWidget {
                     ),
                   ),
                 const Spacer(),
+                IconButton(
+                  key: ValueKey('mobile-catalog-details-${p.id}'),
+                  tooltip: 'Xem chi tiết sản phẩm',
+                  onPressed: () => _showDetails(context, p),
+                  icon: const Icon(Icons.info_outline, color: Color(0xFF344760)),
+                ),
                 PopupMenuButton<String>(
                   key: ValueKey('mobile-catalog-options-${p.id}'),
                   tooltip: 'Thao tác với ${p.name}',

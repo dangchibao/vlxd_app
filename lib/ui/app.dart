@@ -64,6 +64,15 @@ const blue = Color(0xFF086EEB);
 const ink = Color(0xFF142D50);
 String money(num v) => '${NumberFormat.decimalPattern('vi').format(v)} đ';
 String area(num v) => NumberFormat('0.##', 'vi').format(v / 10000);
+String productAvailability(Product p) {
+  if (p.stock < 0) return 'Tồn âm';
+  if (p.stock == 0) return 'Hết tồn';
+  if (p.available < 0) return 'Giữ vượt tồn';
+  if (p.available == 0) return 'Đã giữ hết';
+  if (p.minimum > 0 && p.available <= p.minimum) return 'Sắp hết khả dụng';
+  return 'Còn hàng';
+}
+
 String conversionHint(Product p) =>
     '1 ${p.conversionFromUnit} = ${NumberFormat('0.####', 'vi').format(p.conversionDisplayFactor)} ${p.conversionToUnit}';
 String day(String v) =>
@@ -443,7 +452,7 @@ class DashboardPage extends StatelessWidget {
                 titleText('Cửa hàng trong tầm tay'),
                 const SizedBox(height: 6),
                 hint(
-                  '${c.isLive ? 'Dữ liệu cửa hàng' : 'Toàn bộ dữ liệu mẫu'} • ${DateFormat('dd/MM/yyyy').format(DateTime.now())}',
+                  '${c.isLive ? 'Dữ liệu cửa hàng' : 'Dữ liệu mẫu'} • Toàn bộ thời gian • ${DateFormat('dd/MM/yyyy').format(DateTime.now())}',
                 ),
               ],
             ),
@@ -463,8 +472,8 @@ class DashboardPage extends StatelessWidget {
                 ? 2
                 : 1;
             return Wrap(
-              spacing: 16,
-              runSpacing: 16,
+              spacing: 10,
+              runSpacing: 10,
               children:
                   [
                         metric(
@@ -486,7 +495,7 @@ class DashboardPage extends StatelessWidget {
                           const Color(0xFF7353BA),
                         ),
                         metric(
-                          'Chuyến đang giao',
+                          'Chuyến chưa hoàn tất',
                           '${c.data.deliveries.where((d) => d['status'] != 'Đã xong').length}',
                           Icons.local_shipping_outlined,
                           const Color(0xFFC17C10),
@@ -494,7 +503,7 @@ class DashboardPage extends StatelessWidget {
                       ]
                       .map(
                         (w) => SizedBox(
-                          width: (b.maxWidth - (cols - 1) * 16) / cols,
+                          width: (b.maxWidth - (cols - 1) * 10) / cols,
                           child: w,
                         ),
                       )
@@ -502,113 +511,136 @@ class DashboardPage extends StatelessWidget {
             );
           },
         ),
-        const SizedBox(height: 24),
-        panel(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              titleText('Công việc đang mở', size: 18),
-              const SizedBox(height: 6),
-              hint(
-                'Ưu tiên những việc còn phải xử lý, không hiển thị cảnh báo bằng 0.',
-              ),
-              if (heldOrders > 0)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.shopping_bag_outlined, color: blue),
-                  title: Text('$heldOrders đơn đang giữ hàng'),
-                  subtitle: const Text('Kiểm tra và xử lý đơn chưa hoàn tất'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => c.navigate(9),
+        const SizedBox(height: 14),
+        LayoutBuilder(
+          builder: (context, sectionBox) {
+            final sideBySide = sectionBox.maxWidth >= 1050;
+            final sectionWidth = sideBySide
+                ? (sectionBox.maxWidth - 12) / 2
+                : sectionBox.maxWidth;
+            return Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                SizedBox(
+                  width: sectionWidth,
+                  child: panel(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        titleText('Công việc đang mở', size: 18),
+                        const SizedBox(height: 6),
+                        if (heldOrders > 0 || activeTrips > 0 || debtCustomers > 0)
+                          hint('Nhấn vào từng mục để xử lý trực tiếp.'),
+                        if (heldOrders > 0)
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.shopping_bag_outlined, color: blue),
+                            title: Text('$heldOrders đơn đang giữ hàng'),
+                            subtitle: const Text('Kiểm tra và xử lý đơn chưa hoàn tất'),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute<void>(builder: (_) => const OrdersPage()),
+                            ),
+                          ),
+                        if (activeTrips > 0)
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(
+                              Icons.local_shipping_outlined,
+                              color: blue,
+                            ),
+                            title: Text('$activeTrips chuyến đang giao'),
+                            subtitle: const Text('Theo dõi giao hàng chưa hoàn thành'),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => c.navigate(4),
+                          ),
+                        if (debtCustomers > 0)
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(
+                              Icons.account_balance_wallet_outlined,
+                              color: blue,
+                            ),
+                            title: Text('$debtCustomers khách hàng còn công nợ'),
+                            subtitle: const Text(
+                              'Mở sổ công nợ để đối chiếu và thu tiền',
+                            ),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => c.navigate(5),
+                          ),
+                        if (heldOrders == 0 && activeTrips == 0 && debtCustomers == 0)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 4),
+                            child: Text(
+                              'Đã xử lý hết đơn giữ, chuyến đang giao và công nợ cần thu.',
+                            ),
+                          ),
+                        if (heldOrders > 0 || activeTrips > 0 || debtCustomers > 0)
+                          const Divider(),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            OutlinedButton.icon(
+                              icon: const Icon(Icons.warehouse_outlined),
+                              label: const Text('Mở Kho / nhập hàng'),
+                              onPressed: () => c.navigate(3),
+                            ),
+                            OutlinedButton.icon(
+                              icon: const Icon(Icons.local_shipping_outlined),
+                              label: const Text('Giao hàng'),
+                              onPressed: () => c.navigate(4),
+                            ),
+                            OutlinedButton.icon(
+                              icon: const Icon(Icons.payments_outlined),
+                              label: const Text('Sổ công nợ'),
+                              onPressed: () => c.navigate(5),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  )
                 ),
-              if (activeTrips > 0)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(
-                    Icons.local_shipping_outlined,
-                    color: blue,
-                  ),
-                  title: Text('$activeTrips chuyến đang giao'),
-                  subtitle: const Text('Theo dõi giao hàng chưa hoàn thành'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => c.navigate(4),
+                SizedBox(
+                  width: sectionWidth,
+                  child: panel(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        titleText('Đơn hàng gần đây', size: 18),
+                        const SizedBox(height: 6),
+                        if (c.data.orders.isEmpty)
+                          const EmptyState(
+                            'Chưa có đơn hàng',
+                            'Chọn Bán hàng để tạo đơn đầu tiên.',
+                            Icons.receipt_long_outlined,
+                          ),
+                        VlxdPagedList<Json>(
+                          items: c.data.orders,
+                          pageSize: 6,
+                          itemBuilder: (o) => ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(o['id']),
+                            subtitle: Text('${day(o['at'])} • ${o['status']}'),
+                            trailing: Text(
+                              money(o['total']),
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            onTap: () => showOrder(context, o),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
                 ),
-              if (debtCustomers > 0)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(
-                    Icons.account_balance_wallet_outlined,
-                    color: blue,
-                  ),
-                  title: Text('$debtCustomers khách hàng còn công nợ'),
-                  subtitle: const Text(
-                    'Mở sổ công nợ để đối chiếu và thu tiền',
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => c.navigate(5),
-                ),
-              if (heldOrders == 0 && activeTrips == 0 && debtCustomers == 0)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Text(
-                    'Không có đơn giữ, chuyến giao hoặc công nợ tồn đọng.',
-                  ),
-                ),
-              const Divider(),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.warehouse_outlined),
-                    label: const Text('Mở Kho / nhập hàng'),
-                    onPressed: () => c.navigate(3),
-                  ),
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.local_shipping_outlined),
-                    label: const Text('Giao hàng'),
-                    onPressed: () => c.navigate(4),
-                  ),
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.payments_outlined),
-                    label: const Text('Sổ công nợ'),
-                    onPressed: () => c.navigate(5),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 24),
-        panel(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              titleText('Đơn hàng gần đây', size: 18),
-              const SizedBox(height: 12),
-              if (c.data.orders.isEmpty)
-                const EmptyState(
-                  'Chưa có đơn mẫu',
-                  'Chọn Bán hàng để thử tạo đơn đầu tiên.',
-                  Icons.receipt_long_outlined,
-                ),
-              VlxdPagedList<Json>(
-                items: c.data.orders,
-                pageSize: 6,
-                itemBuilder: (o) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(o['id']),
-                  subtitle: Text('${day(o['at'])} • ${o['status']}'),
-                  trailing: Text(
-                    money(o['total']),
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  onTap: () => showOrder(context, o),
-                ),
-              ),
-            ],
-          ),
+              ],
+            );
+          },
         ),
       ],
     );
@@ -619,9 +651,13 @@ class DashboardPage extends StatelessWidget {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: color, size: 23),
-            const SizedBox(height: 7),
-            hint(label),
+            Row(
+              children: [
+                Icon(icon, color: color, size: 20),
+                const SizedBox(width: 6),
+                Expanded(child: hint(label)),
+              ],
+            ),
             const SizedBox(height: 7),
             FittedBox(
               fit: BoxFit.scaleDown,
@@ -637,6 +673,7 @@ class DashboardPage extends StatelessWidget {
             ),
           ],
         ),
+        padding: const EdgeInsets.all(12),
       );
 }
 

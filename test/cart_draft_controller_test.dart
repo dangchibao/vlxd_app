@@ -46,7 +46,12 @@ void main() {
 
   test('Thêm sản phẩm tự lưu nháp; khôi phục giữ mã request', () async {
     c.requestId = 'draft-1';
-    c.addCart(c.data.product('PR6060VD'), 14400, note: 'Giao ngày mai');
+    c.addCart(
+      c.data.product('PR6060VD'),
+      14400,
+      note: 'Giao ngày mai',
+      saleQuantity: '1',
+    );
     await drafts.flush();
     expect((await drafts.read('employee-001'))!['requestId'], 'draft-1');
 
@@ -57,6 +62,7 @@ void main() {
     expect(await restarted.restoreLocalDraft(), isTrue);
     expect(restarted.requestId, 'draft-1');
     expect(restarted.cart.single.note, 'Giao ngày mai');
+    expect(restarted.cart.single.saleQuantity, '1');
     restarted.onClose();
   });
 

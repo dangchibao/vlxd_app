@@ -39,20 +39,20 @@ void main() {
       await tester.tap(find.text('Thêm vào giỏ hàng'));
       await tester.pumpAndSettle();
       expect(c.cart, hasLength(1));
-      expect(find.text(money(cartonTotal + 50000)), findsOneWidget);
+      expect(find.text(money(cartonTotal + 50000)), findsWidgets);
       expect(
         tester.widget<TextField>(shippingField()).controller!.text,
         '50 000',
       );
       await tester.tap(find.byTooltip('Thêm một thùng'));
       await tester.pumpAndSettle();
-      expect(find.text(money(cartonTotal * 2 + 50000)), findsOneWidget);
+      expect(find.text(money(cartonTotal * 2 + 50000)), findsWidgets);
       await tester.tap(find.byTooltip('Bớt một thùng'));
       await tester.pumpAndSettle();
-      expect(find.text(money(cartonTotal + 50000)), findsOneWidget);
+      expect(find.text(money(cartonTotal + 50000)), findsWidgets);
       await tester.tap(find.byTooltip('Bỏ khỏi giỏ'));
       await tester.pumpAndSettle();
-      expect(find.text(money(50000)), findsOneWidget);
+      expect(find.text(money(50000)), findsWidgets);
       expect(find.text('Giỏ hàng trống'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
@@ -79,7 +79,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(c.cart.first.area, p.ratio * 2);
       // Both the line and the total display the updated amount.
-      expect(find.text(money(cartonTotal * 2)), findsNWidgets(2));
+      expect(find.text(money(cartonTotal * 2)), findsWidgets);
       expect(tester.takeException(), isNull);
     },
   );

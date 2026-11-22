@@ -99,8 +99,8 @@ class SalesPage extends StatelessWidget {
                   pageSize: 12,
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    // Man hinh hep: it cot hon de chu va nut khong tran.
-                    // Chieu cao du de gia von, gia ban va thao tac hien du.
+                    // Compact sales cards: prioritize selecting products,
+                    // while keeping management actions in a separate menu.
                     crossAxisCount: grid.maxWidth >= 1100
                         ? 4
                         : grid.maxWidth >= 800
@@ -108,7 +108,10 @@ class SalesPage extends StatelessWidget {
                         : grid.maxWidth >= 510
                         ? 2
                         : 1,
-                    mainAxisExtent: grid.maxWidth < 800 ? 390 : 365,
+                    mainAxisExtent:
+                        VlxdDisplayPreferences.instance.comfortableDensity
+                        ? 260
+                        : 230,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,
                   ),
@@ -119,73 +122,76 @@ class SalesPage extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(child: ProductPicture(p)),
-                            const SizedBox(height: 6),
-                            Text(
-                              '${p.name} ${p.size}',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
+                            SizedBox(
+                              height: 88,
+                              width: double.infinity,
+                              child: ProductPicture(p),
                             ),
-                            const SizedBox(height: 6),
-                            const Text(
-                              'GIÁ BÁN',
-                              style: TextStyle(
-                                color: blue,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                              ),
+                            const SizedBox(height: 5),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '${p.name} ${p.size}',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 36,
+                                  height: 36,
+                                  child: PopupMenuButton<String>(
+                                    key: ValueKey('sale-product-options-${p.id}'),
+                                    tooltip: 'Quản lý sản phẩm',
+                                    icon: const Icon(Icons.more_vert, size: 19),
+                                    padding: EdgeInsets.zero,
+                                    enabled: !c.busy,
+                                    onSelected: (action) {
+                                      if (action == 'edit') {
+                                        editProduct(context, original: p);
+                                      }
+                                      if (action == 'archive') {
+                                        archiveProductDialog(context, p);
+                                      }
+                                    },
+                                    itemBuilder: (_) => [
+                                      PopupMenuItem(
+                                        value: 'edit',
+                                        key: ValueKey('edit-sale-product-${p.id}'),
+                                        child: const Text('Sửa sản phẩm'),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'archive',
+                                        key: ValueKey('delete-sale-product-${p.id}'),
+                                        child: const Text('Ngừng kinh doanh'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
+                            const SizedBox(height: 3),
                             Text(
                               '${money(p.price)} / ${p.unit}',
                               style: const TextStyle(
                                 color: blue,
-                                fontSize: 17,
+                                fontSize: 16,
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
+                            const SizedBox(height: 4),
                             Row(
                               children: [
                                 Expanded(
                                   child: hint(
-                                    'Còn ${area(p.available)} ${p.unit}',
+                                    '${productAvailability(p)} • ${area(p.available)} ${p.unit}',
                                   ),
                                 ),
                                 const Icon(Icons.add_circle, color: blue),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              children: [
-                                OutlinedButton.icon(
-                                  key: ValueKey('edit-sale-product-${p.id}'),
-                                  onPressed: c.busy
-                                      ? null
-                                      : () => editProduct(context, original: p),
-                                  icon: const Icon(
-                                    Icons.edit_outlined,
-                                    size: 17,
-                                  ),
-                                  label: const Text('Sửa'),
-                                ),
-                                TextButton.icon(
-                                  key: ValueKey('delete-sale-product-${p.id}'),
-                                  onPressed: c.busy
-                                      ? null
-                                      : () => archiveProductDialog(context, p),
-                                  icon: const Icon(
-                                    Icons.delete_outline,
-                                    size: 17,
-                                  ),
-                                  label: const Text('Xóa'),
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: Colors.red,
-                                  ),
-                                ),
                               ],
                             ),
                           ],
@@ -411,6 +417,7 @@ Future<void> confirmProduct(
                 (n * (p.factorForUnit(unit))).round(),
                 note: note.text,
                 saleUnit: unit,
+                saleQuantity: qty.text,
               );
               if (ctx.mounted) Navigator.pop(ctx);
             }),
@@ -538,7 +545,10 @@ class CartPanel extends StatefulWidget {
   State<CartPanel> createState() => _CartPanelState();
 }
 
+enum _PaymentMode { full, partial, debt }
+
 class _CartPanelState extends State<CartPanel> {
+  _PaymentMode paymentMode = _PaymentMode.full;
   final paid = TextEditingController(),
       shipping = TextEditingController(text: '0'),
       discountInput = TextEditingController(),
@@ -617,9 +627,23 @@ class _CartPanelState extends State<CartPanel> {
       throw ArgumentError('Kiểm tra phí giao hàng và số tiền giảm giá.');
     }
     final total = subtotal - discount + ship;
-    final received = paid.text.trim().isEmpty ? total : whole(paid.text);
+    if (paymentMode == _PaymentMode.partial && paid.text.trim().isEmpty) {
+      throw ArgumentError('Nhập số tiền thu hoặc chọn Thanh toán đủ / Ghi nợ.');
+    }
+    final received = switch (paymentMode) {
+      _PaymentMode.full => total,
+      _PaymentMode.debt => 0,
+      _PaymentMode.partial => whole(paid.text),
+    };
     if (received < 0 || received > total) {
       throw ArgumentError('Tiền đã thu phải từ 0 đến tổng thanh toán.');
+    }
+    if (paymentMode == _PaymentMode.partial &&
+        (received == 0 || received == total)) {
+      throw ArgumentError(
+        'Thanh toán một phần phải lớn hơn 0 và nhỏ hơn tổng tiền. '
+        'Chọn Thanh toán đủ hoặc Ghi nợ nếu phù hợp.',
+      );
     }
     return (ship: ship, discount: discount, total: total, paid: received);
   }
@@ -659,6 +683,11 @@ class _CartPanelState extends State<CartPanel> {
       try {
         shipping.text = c.draftShippingText;
         paid.text = c.draftPaidText;
+        paymentMode = paid.text.trim().isEmpty
+            ? _PaymentMode.full
+            : whole(paid.text) == 0
+            ? _PaymentMode.debt
+            : _PaymentMode.partial;
         reason.text = c.draftNegativeReason;
         discountInput.text = c.draftDiscountText;
         showDiscount = discountInput.text.isNotEmpty;
@@ -687,13 +716,26 @@ class _CartPanelState extends State<CartPanel> {
     final exceeds = c.cart.any(
       (l) => l.area > c.data.product(l.productId).available,
     );
-    final ship = math.max(0, whole(shipping.text));
+    final shippingValue = shipping.text.trim().isEmpty
+        ? 0
+        : whole(shipping.text);
+    final invalidShipping = shippingValue < 0;
+    final ship = math.max(0, shippingValue);
     final enteredDiscount = showDiscount && discountInput.text.trim().isNotEmpty
         ? whole(discountInput.text)
         : 0;
     final invalidDiscount = enteredDiscount < 0 || enteredDiscount > c.subtotal;
     final total = c.subtotal + ship - (invalidDiscount ? 0 : enteredDiscount);
-    final received = paid.text.trim().isEmpty ? total : whole(paid.text);
+    final received = switch (paymentMode) {
+      _PaymentMode.full => total,
+      _PaymentMode.debt => 0,
+      _PaymentMode.partial => paid.text.trim().isEmpty ? 0 : whole(paid.text),
+    };
+    final invalidReceived = received < 0 || received > total;
+    final invalidPartial = paymentMode == _PaymentMode.partial &&
+        (paid.text.trim().isEmpty || received <= 0 || received >= total);
+    final needsCustomer = customerId.isEmpty &&
+        (hold || (!invalidReceived && received < total));
     return Material(
       color: Colors.white,
       child: ListView(
@@ -834,6 +876,13 @@ class _CartPanelState extends State<CartPanel> {
                                     l.area - step,
                                     note: l.note,
                                     saleUnit: l.saleUnit,
+                                    saleQuantity: l.saleQuantity == null
+                                        ? null
+                                        : addSaleQuantities(
+                                            l.saleQuantity!,
+                                            '1',
+                                            subtract: true,
+                                          ),
                                   );
                                 }
                                 c.update();
@@ -856,6 +905,7 @@ class _CartPanelState extends State<CartPanel> {
                                     : productUnitScale,
                                 note: '',
                                 saleUnit: l.saleUnit,
+                                saleQuantity: '1',
                               ),
                         icon: const Icon(Icons.add_circle_outline),
                       ),
@@ -872,33 +922,11 @@ class _CartPanelState extends State<CartPanel> {
             moneyInput: true,
             enabled: !locked,
           ),
-          Row(
-            children: [
-              const Expanded(child: Text('Tổng thanh toán')),
-              Flexible(
-                child: Text(
-                  invalidDiscount ? '—' : money(total),
-                  style: const TextStyle(
-                    color: blue,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (!invalidDiscount)
-            hint('Gợi ý cọc 30%: ${money((total * .3).round())}'),
-          const SizedBox(height: 12),
-          field(
-            paid,
-            'Tiền đã thu (đ) • bỏ trống để thu đủ',
-            moneyInput: true,
-            enabled: !locked,
-          ),
-          if (!invalidDiscount && received >= 0 && received <= total)
-            hint('Còn phải thu: ${money(total - received)}'),
+          if (invalidShipping)
+            const Text(
+              'Phí giao hàng không hợp lệ.',
+              style: TextStyle(color: Colors.red),
+            ),
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton.icon(
@@ -921,8 +949,164 @@ class _CartPanelState extends State<CartPanel> {
               enabled: !locked,
             ),
             if (invalidDiscount)
-              const Text('Giảm giá không được vượt tổng tiền hàng.'),
+              const Text(
+                'Giảm giá không được vượt tổng tiền hàng.',
+                style: TextStyle(color: Colors.red),
+              ),
           ],
+          Row(
+            children: [
+              const Expanded(child: Text('Tổng thanh toán')),
+              Flexible(
+                child: Text(
+                  invalidDiscount || invalidShipping ? '—' : money(total),
+                  style: const TextStyle(
+                    color: blue,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Cách thanh toán',
+            style: TextStyle(fontWeight: FontWeight.w700, color: ink),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final mode in _PaymentMode.values)
+                ChoiceChip(
+                  key: ValueKey('payment-${mode.name}'),
+                  label: Text(switch (mode) {
+                    _PaymentMode.full => 'Thanh toán đủ',
+                    _PaymentMode.partial => 'Một phần',
+                    _PaymentMode.debt => 'Ghi nợ',
+                  }),
+                  selected: paymentMode == mode,
+                  onSelected: locked
+                      ? null
+                      : (_) {
+                          setState(() {
+                            paymentMode = mode;
+                            if (mode == _PaymentMode.full) {
+                              paid.clear();
+                            } else if (mode == _PaymentMode.debt) {
+                              paid.text = '0';
+                            } else if (paid.text.trim().isEmpty ||
+                                whole(paid.text) == 0) {
+                              paid.clear();
+                            }
+                          });
+                          _saveFormDraft();
+                        },
+                ),
+            ],
+          ),
+          if (paymentMode == _PaymentMode.partial) ...[
+            const SizedBox(height: 8),
+            field(
+              paid,
+              'Số tiền thu lần này (đ)',
+              moneyInput: true,
+              enabled: !locked,
+            ),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final amount in [100000, 500000, 1000000])
+                  if (amount < total)
+                    ActionChip(
+                      label: Text(money(amount)),
+                      onPressed: locked ? null : () => paid.text = '$amount',
+                    ),
+                if (total > 1)
+                  ActionChip(
+                    key: const ValueKey('payment-quick-30-percent'),
+                    label: const Text('Thu 30%'),
+                    onPressed: locked
+                        ? null
+                        : () => paid.text = '${(total * 3 / 10).round().clamp(1, total - 1)}',
+                  ),
+                if (total > 1)
+                  ActionChip(
+                    key: const ValueKey('payment-quick-half'),
+                    label: const Text('50%'),
+                    onPressed: locked
+                        ? null
+                        : () => paid.text = '${((total + 1) ~/ 2).clamp(1, total - 1)}',
+                  ),
+                ActionChip(
+                  key: const ValueKey('payment-quick-full'),
+                  label: const Text('Trả đủ'),
+                  onPressed: locked
+                      ? null
+                      : () {
+                          setState(() {
+                            paymentMode = _PaymentMode.full;
+                            paid.clear();
+                          });
+                          _saveFormDraft();
+                        },
+                ),
+              ],
+            ),
+          ] else if (paymentMode == _PaymentMode.debt) ...[
+            const SizedBox(height: 6),
+            hint('Không thu tiền trong lần bán này.'),
+          ],
+          if (invalidReceived || invalidPartial)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                'Số tiền thu không hợp lệ. Một phần phải lớn hơn 0 và nhỏ hơn tổng đơn.',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
+          if (!invalidShipping && !invalidDiscount && !invalidReceived)
+            Container(
+              key: const ValueKey('payment-summary'),
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+              margin: const EdgeInsets.only(top: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF2F6FC),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(child: Text('Đã thu lần này')),
+                      Text(
+                        money(received),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Còn phải thu: ${money(total - received)}',
+                      style: const TextStyle(fontWeight: FontWeight.w700, color: ink),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (needsCustomer)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                'Chọn khách hàng trước khi ghi nợ hoặc giữ hàng.',
+                style: TextStyle(color: Color(0xFFAD5700)),
+              ),
+            ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Giữ hàng / đặt cọc'),
@@ -956,7 +1140,12 @@ class _CartPanelState extends State<CartPanel> {
                   c.cart.isEmpty ||
                   checking ||
                   checkFailed ||
-                  alreadyQueued;
+                  alreadyQueued ||
+                  invalidShipping ||
+                  invalidDiscount ||
+                  invalidReceived ||
+                  invalidPartial ||
+                  needsCustomer;
 
               String? message;
               if (checking) {
@@ -1034,6 +1223,7 @@ class _CartPanelState extends State<CartPanel> {
                               );
                               if (!mounted) return;
                               paid.clear();
+                              paymentMode = _PaymentMode.full;
                               shipping.text = '0';
                               discountInput.clear();
                               reason.clear();
@@ -1086,6 +1276,7 @@ class _CartPanelState extends State<CartPanel> {
                             );
                             if (!mounted) return;
                             paid.clear();
+                            paymentMode = _PaymentMode.full;
                             shipping.text = '0';
                             discountInput.clear();
                             setState(() => showDiscount = false);
@@ -1150,10 +1341,20 @@ class _CartPanelState extends State<CartPanel> {
                                 'id': 'TAM-$requestId',
                                 'status': 'Chờ đồng bộ',
                                 'customerId': customerId,
+                                ...{
+                                  for (final customer in c.data.customers.where(
+                                    (entry) => entry['id'] == customerId,
+                                  )) ...{
+                                    'customerName': customer['name'],
+                                    'customerPhone': customer['phone'],
+                                    'customerAddress': customer['address'],
+                                  },
+                                },
                                 'at': DateTime.now().toUtc().toIso8601String(),
                                 'lines': [
                                   for (final line in c.cart)
                                     <String, dynamic>{
+                                      'productId': line.productId,
                                       'name': c.data
                                           .product(line.productId)
                                           .name,
@@ -1168,6 +1369,15 @@ class _CartPanelState extends State<CartPanel> {
                                           .ratio,
                                       if (line.saleUnit.isNotEmpty)
                                         'saleUnit': line.saleUnit,
+                                      if (line.saleQuantity != null) ...{
+                                        'saleQuantity': line.saleQuantity,
+                                        'salePrice': salePriceSnapshot(
+                                          c.data.product(line.productId).price,
+                                          c.data
+                                              .product(line.productId)
+                                              .factorForUnit(line.saleUnit),
+                                        ),
+                                      },
                                       'area': line.area,
                                       'price': c.data
                                           .product(line.productId)
@@ -1185,6 +1395,40 @@ class _CartPanelState extends State<CartPanel> {
                                 'total':
                                     subtotal - amounts.discount + amounts.ship,
                               };
+                              // Match checkout's per-product rounding and last-line
+                              // remainder without creating a business transaction.
+                              final remainingQuantity = <String, int>{};
+                              for (final line in c.cart) {
+                                remainingQuantity.update(
+                                  line.productId,
+                                  (value) => value + line.area,
+                                  ifAbsent: () => line.area,
+                                );
+                              }
+                              final remainingMoney = <String, int>{
+                                for (final entry in remainingQuantity.entries)
+                                  entry.key: lineMoney(
+                                    entry.value,
+                                    c.data.product(entry.key).price,
+                                  ),
+                              };
+                              for (final row
+                                  in temporarySlip['lines'] as List) {
+                                final id = row['productId'] as String;
+                                final quantity = row['area'] as int;
+                                row['amount'] =
+                                    remainingQuantity[id] == quantity
+                                    ? remainingMoney[id]!
+                                    : math.min(
+                                        remainingMoney[id]!,
+                                        row['amount'] as int,
+                                      );
+                                remainingQuantity[id] =
+                                    remainingQuantity[id]! - quantity;
+                                remainingMoney[id] =
+                                    remainingMoney[id]! -
+                                    (row['amount'] as int);
+                              }
                               final temporaryCustomer = invoiceCustomer(
                                 c.data,
                                 temporarySlip,
@@ -1362,6 +1606,7 @@ Widget checkoutResultContent(
                         ),
                         const SizedBox(height: 6),
                         // Keep the exact label visible for existing widget tests.
+                        InvoiceSnapshotWarning(order: order),
                         Text('Khách hàng: $customerName'),
                         if (provisional)
                           const Padding(
@@ -1463,19 +1708,10 @@ Widget checkoutResultContent(
                                       : 'Xem trước hóa đơn',
                                 ),
                               ),
-                              body: PdfPreview(
-                                pdfFileName: provisional
-                                    ? 'phieu-tam-${order['id']}.pdf'
-                                    : 'hoa-don-${order['id']}.pdf',
-                                canChangeOrientation: false,
-                                canChangePageFormat: false,
-                                canDebug: false,
-                                build: (_) => PrintService.invoicePdf(
-                                  order,
-                                  customerName,
-                                  provisional: provisional,
-                                  demo: !Get.find<ShopController>().isLive,
-                                ),
+                              body: InvoicePrintPreview(
+                                order: order,
+                                provisional: provisional,
+                                demo: !Get.find<ShopController>().isLive,
                               ),
                             ),
                           ),
@@ -1483,32 +1719,24 @@ Widget checkoutResultContent(
                       ),
                       OutlinedButton.icon(
                         key: const ValueKey('checkout-confirm-print'),
-                        onPressed: () async {
-                          try {
-                            await Printing.layoutPdf(
-                              name: provisional
-                                  ? 'phieu-tam-${order['id']}.pdf'
-                                  : 'hoa-don-${order['id']}.pdf',
-                              onLayout: (_) => PrintService.invoicePdf(
-                                order,
-                                customerName,
+                        onPressed: () => Navigator.of(dialogContext).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => Scaffold(
+                              appBar: AppBar(
+                                title: Text(
+                                  provisional
+                                      ? 'Chọn khổ phiếu tạm'
+                                      : 'Chọn khổ hóa đơn',
+                                ),
+                              ),
+                              body: InvoicePrintPreview(
+                                order: order,
                                 provisional: provisional,
                                 demo: !Get.find<ShopController>().isLive,
                               ),
-                            );
-                          } catch (_) {
-                            if (dialogContext.mounted) {
-                              ScaffoldMessenger.maybeOf(dialogContext)
-                                  ?.showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Chưa in được phiếu. Đơn đã lưu vẫn giữ nguyên; có thể thử in lại.',
-                                      ),
-                                    ),
-                                  );
-                            }
-                          }
-                        },
+                            ),
+                          ),
+                        ),
                         icon: const Icon(Icons.print_outlined),
                         label: Text(
                           provisional ? 'In phiếu tạm' : 'In hóa đơn',
@@ -1756,11 +1984,20 @@ Future<void> returnSoldOrderDialog(BuildContext context, Json order) async {
 
 Future<void> printReceipt80(BuildContext context, Json order) async {
   try {
+    if (!await confirmInvoiceSnapshot(context, order)) return;
     final controller = Get.find<ShopController>();
     final name = invoiceCustomer(controller.data, order);
+    final receipt = await PrintService.receipt80(
+      order,
+      name,
+      demo: !controller.isLive,
+    );
     await Printing.layoutPdf(
       name: 'phieu-80mm-${order['id']}.pdf',
-      onLayout: (_) => PrintService.receipt80Pdf(order, name),
+      format: receipt.format,
+      dynamicLayout: false,
+      forceCustomPrintPaper: true,
+      onLayout: (_) async => receipt.bytes,
     );
   } catch (e) {
     if (!context.mounted) return;
@@ -1782,32 +2019,15 @@ Future<void> printReceipt80(BuildContext context, Json order) async {
 
 /// Print the already-saved invoice. Never creates a new checkout or mutates data.
 Future<void> printSavedCheckoutInvoice(BuildContext context, Json order) async {
-  if (order['status'] != 'Đã bán') return;
-  try {
-    final controller = Get.find<ShopController>();
-    final customer = invoiceCustomer(controller.data, order);
-    await Printing.layoutPdf(
-      name: 'phieu-ban-${order['id']}.pdf',
-      onLayout: (_) =>
-          PrintService.invoicePdf(order, customer, demo: !controller.isLive),
-    );
-  } catch (_) {
-    if (!context.mounted) return;
-    await safeDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Không in được phiếu'),
-        content: const Text(
-          'Đơn vẫn đã được lưu. Mở Hóa đơn đã bán để in lại; '
-          'không cần chốt đơn lần nữa.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Đã hiểu'),
-          ),
-        ],
+  if (order['status'] != 'Đã bán' || !context.mounted) return;
+  if (!await confirmInvoiceSnapshot(context, order) || !context.mounted) return;
+  final controller = Get.find<ShopController>();
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => Scaffold(
+        appBar: AppBar(title: Text('Chọn khổ hóa đơn ${order['id']}')),
+        body: InvoicePrintPreview(order: order, demo: !controller.isLive),
       ),
-    );
-  }
+    ),
+  );
 }

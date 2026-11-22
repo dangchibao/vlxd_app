@@ -79,7 +79,11 @@ void main() {
     controller.attachCheckoutOutbox(outbox);
     controller.actor = const Actor('employee-001', Role.owner);
     controller.requestId = 'offline-ui-001';
-    controller.addCart(controller.data.product('PR6060VD'), 144000);
+    controller.addCart(
+      controller.data.product('PR6060VD'),
+      144000,
+      saleQuantity: '10',
+    );
 
     await showCart(tester);
 
@@ -111,6 +115,7 @@ void main() {
     final command = OfflineCheckoutCommand.decode(saved.payloadJson);
     expect(command.customerId, 'KH001');
     expect(command.lines.single.area, 144000);
+    expect(command.lines.single.saleQuantity, '10');
     expect(repository.transactions, 0);
     expect(controller.cart, hasLength(1));
     expect(controller.cartEditingLocked, isTrue);

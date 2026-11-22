@@ -233,22 +233,24 @@ void main() {
       throwsArgumentError,
     );
   });
-  test(
-    'sales can finish trips but payroll is owner-only; drivers cannot access',
-    () {
-      d.deliveries.add({'id': 'GH001', 'status': 'Đang giao'});
-      d.finishDelivery('GH001', sales);
-      d.finishDelivery('GH001', sales);
-      expect(d.notifications, hasLength(1));
-      expect(() => d.setSalary('NV001', 9000000, 0, sales), throwsStateError);
-      expect(
-        () => const Actor('tx', Role.driver).requireAccess(),
-        throwsStateError,
-      );
-      d.setSalary('NV001', 9000000, 0, owner);
-      expect(d.payroll.first['salary'], 9000000);
-    },
-  );
+  test('sales can finish trips and edit payroll; drivers cannot access', () {
+    d.deliveries.add({'id': 'GH001', 'status': 'Đang giao'});
+    d.finishDelivery('GH001', sales);
+    d.finishDelivery('GH001', sales);
+    expect(d.notifications, hasLength(1));
+    d.setSalary('NV001', 9000000, 0, sales);
+    expect(d.payroll.first['salary'], 9000000);
+    expect(
+      () => d.setSalary('NV001', 9000000, 0, const Actor('tx', Role.driver)),
+      throwsStateError,
+    );
+    expect(
+      () => const Actor('tx', Role.driver).requireAccess(),
+      throwsStateError,
+    );
+    d.setSalary('NV001', 9000000, 0, owner);
+    expect(d.payroll.first['salary'], 9000000);
+  });
   test('stock older than 60 days warns only when it still exists', () {
     final p = d.product('PR6060VD');
     p.lots.first['date'] = DateTime(2026, 1, 1).toIso8601String();

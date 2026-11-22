@@ -143,7 +143,41 @@ void main() {
       );
 
       d.receive(productId, 1440000, 150000, DateTime.now(), actor, lot1);
+      for (var i = 0; i < 40; i++) {
+        d.saveProduct(
+          Product(
+            id: 'CACHE-$suffix-$i',
+            code: 'CACHE-$suffix-$i',
+            name: 'Hàng đo đồng bộ $i',
+            size: '',
+            supplier: '',
+            price: 1000,
+            ratio: 0,
+          ),
+          actor,
+        );
+      }
     }, a);
+
+    // Both clients establish an independent server-verified checkpoint.
+    final initialB = await repoB.load();
+    final firstReadB = repoB.rowDocumentsRead;
+    initialB.product(productId).price = 1;
+    expect((await repoB.load()).product(productId).price, 240000);
+    expect(repoB.rowDocumentsRead, firstReadB);
+    await repoA.transact((d, actor) {
+      final opened = d.copy().product(productId);
+      final edited = d.copy().product(productId)..note = 'Kiểm tra delta';
+      d.saveProduct(edited, actor, expected: opened);
+    }, a);
+    final deltaB = await repoB.load();
+    final changedReadB = repoB.rowDocumentsRead - firstReadB;
+    expect(deltaB.product(productId).note, 'Kiểm tra delta');
+    expect(changedReadB, greaterThan(0));
+    expect(changedReadB, lessThan(firstReadB ~/ 2));
+    debugPrint(
+      'DELTA row documents: initial=$firstReadB, update=$changedReadB; metadata/empty queries excluded',
+    );
 
     // 5. Lấy mốc so sánh, không giả định Emulator không có hóa đơn cũ.
     final beforeCheckout = await repoA.load();

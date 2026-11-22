@@ -11,6 +11,7 @@ import '../data/sync/offline_checkout_command.dart';
 import '../data/sync/offline_book_operation.dart';
 import '../data/sync/outbox_repository.dart';
 import '../domain/shop.dart';
+import '../domain/unit_rules.dart';
 import '../domain/product_discovery.dart';
 
 class ShopController extends GetxController {
@@ -96,6 +97,7 @@ class ShopController extends GetxController {
             'area': l.area,
             'note': l.note,
             if (l.saleUnit.isNotEmpty) 'saleUnit': l.saleUnit,
+            if (l.saleQuantity != null) 'saleQuantity': l.saleQuantity,
           },
         )
         .toList();
@@ -165,6 +167,7 @@ class ShopController extends GetxController {
           productId,
           entry['area'] as int,
           note: entry['note'] as String,
+          saleQuantity: entry['saleQuantity'] as String?,
           saleUnit: entry['saleUnit'] is String
               ? entry['saleUnit'] as String
               : '',
@@ -530,7 +533,13 @@ class ShopController extends GetxController {
   // CART
   // ============================================================
 
-  void addCart(Product p, int area, {String? note, String? saleUnit}) {
+  void addCart(
+    Product p,
+    int area, {
+    String? note,
+    String? saleUnit,
+    String? saleQuantity,
+  }) {
     _ensureCartEditable();
     if (area <= 0) {
       throw ArgumentError('Số lượng phải lớn hơn 0.');
@@ -546,6 +555,8 @@ class ShopController extends GetxController {
     if (chosenUnit != p.unit && !p.isSecondaryUnit(chosenUnit)) {
       throw ArgumentError('Đơn vị bán không phù hợp với sản phẩm.');
     }
+    final quantity = saleQuantity == null ? null : saleDecimal(saleQuantity);
+    if (quantity == '0') throw ArgumentError('Số lượng phải lớn hơn 0.');
     final index = cart.indexWhere(
       (line) =>
           line.productId == p.id &&
@@ -553,7 +564,15 @@ class ShopController extends GetxController {
     );
 
     if (index < 0) {
-      cart.add(CartLine(p.id, area, note: nextNote, saleUnit: chosenUnit));
+      cart.add(
+        CartLine(
+          p.id,
+          area,
+          note: nextNote,
+          saleUnit: chosenUnit,
+          saleQuantity: quantity,
+        ),
+      );
     } else {
       final merged = mergeLineNotes([cart[index].note, nextNote]);
 
@@ -566,6 +585,9 @@ class ShopController extends GetxController {
         cart[index].area + area,
         note: merged,
         saleUnit: chosenUnit,
+        saleQuantity: cart[index].saleQuantity != null && quantity != null
+            ? addSaleQuantities(cart[index].saleQuantity!, quantity)
+            : null,
       );
     }
 
@@ -703,6 +725,7 @@ class ShopController extends GetxController {
           area: line.area,
           note: line.note,
           saleUnit: line.saleUnit,
+          saleQuantity: line.saleQuantity,
           quotedPrice: product.price,
           quotedRatio: product.ratio,
         ),
@@ -853,7 +876,8 @@ class ShopController extends GetxController {
         if (savedLine.productId != currentLine.productId ||
             savedLine.area != currentLine.area ||
             savedLine.note != currentLine.note ||
-            savedLine.saleUnit != currentLine.saleUnit) {
+            savedLine.saleUnit != currentLine.saleUnit ||
+            savedLine.saleQuantity != currentLine.saleQuantity) {
           throw StateError(
             'Sản phẩm trong giỏ khác đơn đã lưu. Giỏ vẫn được khóa.',
           );

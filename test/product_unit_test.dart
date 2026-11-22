@@ -25,4 +25,26 @@ void main() {
     expect(loaded.size, '60×60');
     expect(loaded.toJson()['unit'], 'tấm');
   });
+
+  test('rejects units beyond the Firestore limit before changing the shop', () {
+    final data = ShopData.empty();
+    for (final unit in ['x' * 41, 'm${' ' * 40}2']) {
+      final invalid = product('', unit: unit);
+      expect(
+        () => data.saveProduct(invalid, const Actor('owner', Role.owner)),
+        throwsArgumentError,
+      );
+    }
+    expect(data.products, isEmpty);
+    expect(data.audit, isEmpty);
+  });
+
+  test('accepts a unit at the Firestore length limit', () {
+    final data = ShopData.empty();
+    data.saveProduct(
+      product('', unit: 'x' * 40),
+      const Actor('owner', Role.owner),
+    );
+    expect(data.products.single.unit.length, 40);
+  });
 }

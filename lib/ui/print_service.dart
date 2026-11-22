@@ -1,47 +1,192 @@
-import 'dart:typed_data';
-
 import 'package:intl/intl.dart';
+import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../domain/shop.dart';
+import '../domain/unit_rules.dart';
 import '../data/store_profile.dart';
 
 class PrintService {
-  // Legacy invoices without saleUnit are always displayed in the base unit.
-  static String _saleUnit(Map row) {
-    final selected = row['saleUnit'];
-    final base = row['unit'] as String? ?? 'm²';
-    return selected is String &&
-            selected.isNotEmpty &&
-            selected != base &&
-            ((row['ratio'] as num?) ?? 0) > 0
-        ? selected
-        : base;
+  static const invoicePageFormat = PdfPageFormat.a4;
+  static Future<pw.ThemeData>? _fontTheme;
+
+  /// No catalog fallback: an absent snapshot must remain visibly unknown.
+  static String customerSnapshot(Json order) {
+    final name = (order['customerName'] as String? ?? '').trim();
+    return name.isNotEmpty
+        ? name
+        : order['customerId'] == ''
+        ? 'Khách lẻ'
+        : 'Khách hàng';
   }
 
-  static num _saleQuantity(Map row) {
-    if (_saleUnit(row) != (row['unit'] as String? ?? 'm²')) {
-      return (row['area'] as num) / (row['ratio'] as num);
+  static bool _completeLine(Map row) {
+    try {
+      return (row['saleUnit'] as String? ?? '').trim().isNotEmpty &&
+          row['saleQuantity'] is String &&
+          row['salePrice'] is String &&
+          saleDecimal(row['saleQuantity']) != '0' &&
+          saleDecimal(row['salePrice']).isNotEmpty;
+    } on FormatException {
+      return false;
     }
-    return (row['area'] as num) / 10000;
   }
 
-  static int _saleUnitPrice(Map row) {
-    if (_saleUnit(row) != (row['unit'] as String? ?? 'm²')) {
-      return lineMoney(
-        (row['ratio'] as num).toInt(),
-        (row['price'] as num).toInt(),
-      );
+  static List<String> invoiceWarnings(Json order) {
+    final missing = (order['lines'] as List)
+        .where((row) => !_completeLine(row as Map))
+        .length;
+    return [
+      if (missing > 0)
+        '$missing dòng hàng chưa lưu đủ số lượng, đơn vị và đơn giá bán gốc. Phiếu để trống các ô này, vẫn giữ nguyên thành tiền. Hãy đối chiếu chứng từ gốc.',
+      if (order['customerId'] != '' &&
+          (order['customerName'] as String? ?? '').trim().isEmpty)
+        'Đơn chưa lưu tên khách tại thời điểm bán; không dùng tên khách hiện tại để in lại.',
+    ];
+  }
+
+  static String _decimalText(String value) {
+    final parts = saleDecimal(value).split('.');
+    final grouped = parts[0].replaceAllMapped(
+      RegExp(r'(\d)(?=(\d{3})+$)'),
+      (match) => '${match[1]}.',
+    );
+    return parts.length == 1 ? grouped : '$grouped,${parts[1]}';
+  }
+
+  static String _saleUnit(Map row) =>
+      _completeLine(row) ? row['saleUnit'] as String : '';
+  static String _saleQuantity(Map row) =>
+      _completeLine(row) ? _decimalText(row['saleQuantity']) : '';
+  static String _saleUnitPrice(Map row) =>
+      _completeLine(row) ? _decimalText(row['salePrice']) : '';
+
+  static String _roundingNote(Map row) {
+    if (!_completeLine(row)) return '';
+    final difference =
+        (row['amount'] as num).toInt() -
+        roundedSaleDisplayAmount(row['saleQuantity'], row['salePrice']);
+    return difference == 0
+        ? ''
+        : 'Làm tròn: ${difference > 0 ? '+' : ''}${money(difference)}';
+  }
+
+  static void _validateInvoice(Json order, bool provisional) {
+    if (order['status'] != (provisional ? 'Chờ đồng bộ' : 'Đã bán')) {
+      throw StateError('Chỉ in đơn đã bán hoặc phiếu tạm chờ đồng bộ.');
     }
-    return (row['price'] as num).toInt();
   }
 
-  // Order lines retain the price/name/amount at sale time. Never recalculate
-  // an invoice from today's product catalog or write a second sales record.
-  /// Prints the saved sale, or a clearly labelled local-only temporary slip.
-  /// Never creates or changes a sale, inventory, debt or sync operation.
+  static pw.Widget _totals(
+    Json order, {
+    required bool compact,
+    required bool provisional,
+  }) {
+    final subtotal = (order['subtotal'] as num).toInt();
+    final discount = (order['discount'] as num? ?? 0).toInt();
+    final ship = (order['ship'] as num? ?? 0).toInt();
+    pw.Widget row(String label, int value, {bool bold = false}) => pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 3),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Expanded(child: pw.Text(label)),
+          pw.SizedBox(width: 8),
+          pw.Expanded(
+            child: pw.Text(
+              money(value),
+              textAlign: pw.TextAlign.right,
+              style: pw.TextStyle(
+                fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    return pw.DefaultTextStyle(
+      style: pw.TextStyle(fontSize: compact ? 9 : 11),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+        children: [
+          row('Tiền hàng', subtotal + discount),
+          if (discount > 0) row('Giảm giá', -discount),
+          if (ship != 0) row('Phí giao hàng', ship),
+          pw.Divider(color: PdfColors.grey600),
+          row('TỔNG THANH TOÁN', (order['total'] as num).toInt(), bold: true),
+          if (!provisional && order['payments'] is List) ...[
+            row('Tổng đã thanh toán', ShopData.collected(order)),
+            row(
+              'Còn nợ đơn này',
+              (order['total'] as int) - ShopData.collected(order),
+              bold: true,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _heading(
+    StoreProfile store,
+    Json order,
+    String customer, {
+    required bool compact,
+    required bool provisional,
+    bool demo = false,
+  }) {
+    final when = DateFormat('dd/MM/yyyy HH:mm').format(
+      DateTime.parse((order['soldAt'] ?? order['at']) as String).toLocal(),
+    );
+    final address = (order['customerAddress'] as String? ?? '').trim();
+    final phone = (order['customerPhone'] as String? ?? '').trim();
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+      children: [
+        pw.Text(
+          'VLXD ${store.name}',
+          textAlign: pw.TextAlign.center,
+          style: pw.TextStyle(
+            fontSize: compact ? 15 : 20,
+            fontWeight: pw.FontWeight.bold,
+          ),
+        ),
+        if (store.address.isNotEmpty)
+          pw.Text(
+            store.address,
+            textAlign: pw.TextAlign.center,
+            style: pw.TextStyle(fontSize: compact ? 8 : 9),
+          ),
+        if (store.phone.isNotEmpty)
+          pw.Text('Điện thoại: ${store.phone}', textAlign: pw.TextAlign.center),
+        pw.SizedBox(height: compact ? 6 : 12),
+        pw.Text(
+          provisional ? 'PHIẾU TẠM - CHỜ ĐỒNG BỘ' : 'HÓA ĐƠN BÁN HÀNG',
+          textAlign: pw.TextAlign.center,
+          style: pw.TextStyle(
+            fontSize: compact ? 11 : 17,
+            fontWeight: pw.FontWeight.bold,
+          ),
+        ),
+        if (demo) pw.Text('BẢN THỬ', textAlign: pw.TextAlign.center),
+        pw.SizedBox(height: compact ? 6 : 12),
+        pw.Text('Mã hóa đơn: ${order['id']}'),
+        pw.Text('Ngày bán: $when'),
+        pw.SizedBox(height: 5),
+        pw.Text(
+          'Khách hàng: $customer',
+          style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+        ),
+        if (phone.isNotEmpty) pw.Text('Điện thoại: $phone'),
+        if (address.isNotEmpty) pw.Text('Địa chỉ: $address'),
+        pw.SizedBox(height: compact ? 8 : 14),
+      ],
+    );
+  }
+
+  /// Uses only the saved invoice snapshot; printing never writes business data.
   static Future<Uint8List> invoicePdf(
     Json order,
     String customerName, {
@@ -49,128 +194,46 @@ class PrintService {
     bool provisional = false,
     pw.ThemeData? fontTheme,
   }) async {
+    _validateInvoice(order, provisional);
     final store = StoreProfile.current;
-    // Chỉ đọc dữ liệu trên chứng từ đã lưu, KHÔNG tạo lại giao dịch.
-    if (!provisional && order['status'] != 'Đã bán') {
-      throw StateError('Chỉ in hóa đơn từ đơn đã bán.');
-    }
-    if (provisional && order['status'] != 'Chờ đồng bộ') {
-      throw StateError('Phiếu tạm chỉ dành cho đơn chờ đồng bộ.');
-    }
-
-    final doc = pw.Document(theme: fontTheme ?? await theme());
-    final at = (order['soldAt'] ?? order['at']) as String;
-    final date = DateFormat('dd/MM/yyyy HH:mm')
-        .format(DateTime.parse(at).toLocal());
     final lines = (order['lines'] as List).cast<Map>();
-    final subtotal = (order['subtotal'] as num).toInt();
-    final discount = (order['discount'] as num? ?? 0).toInt();
-    final ship = (order['ship'] as num? ?? 0).toInt();
-    final total = (order['total'] as num).toInt();
-
-    final regular = pw.TextStyle(fontSize: 11);
-    final bold = pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold);
-
-    pw.Widget summaryRow(String label, String value) => pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(vertical: 4),
-      child: pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-        children: [
-          pw.Text(label, style: regular),
-          pw.Text(value, style: regular),
-        ],
-      ),
-    );
-
+    final doc = pw.Document(theme: fontTheme ?? await theme());
     doc.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.fromLTRB(24, 26, 24, 24),
-        build: (_) => [
-          // Phần đầu chỉ dùng CHỮ để in ổn định trên máy in đen trắng.
-          pw.Center(
-            child: pw.Column(
-              children: [
-                pw.Text(
-                  'VLXD ${store.name}',
-                  style: pw.TextStyle(
-                    fontSize: 25,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-                pw.SizedBox(height: 5),
-                pw.Text(
-                  'Vật liệu xây dựng – Gạch – Xi măng – Sắt thép',
-                  style: pw.TextStyle(fontSize: 11),
-                ),
-                pw.SizedBox(height: 4),
-                if (store.address.isNotEmpty)
-                  pw.Text(
-                    store.address,
-                    style: pw.TextStyle(fontSize: 10),
-                    textAlign: pw.TextAlign.center,
-                  ),
-                pw.SizedBox(height: 4),
-                if (store.phone.isNotEmpty)
-                  pw.Text(store.phone, style: pw.TextStyle(fontSize: 11)),
-              ],
-            ),
-          ),
-          pw.SizedBox(height: 12),
-          pw.Divider(thickness: 1.1, color: PdfColors.black),
-          pw.SizedBox(height: 6),
-          pw.Center(
+        pageFormat: invoicePageFormat,
+        margin: const pw.EdgeInsets.fromLTRB(32, 28, 32, 28),
+        theme: (fontTheme ?? await theme()).copyWith(
+          defaultTextStyle: const pw.TextStyle(fontSize: 10),
+        ),
+        header: (context) => context.pageNumber > 1
+            ? pw.Padding(
+                padding: const pw.EdgeInsets.only(bottom: 10),
+                child: pw.Text('VLXD ${store.name} - Hóa đơn ${order['id']}'),
+              )
+            : pw.SizedBox(),
+        footer: (context) => pw.Padding(
+          padding: const pw.EdgeInsets.only(top: 8),
+          child: pw.Align(
+            alignment: pw.Alignment.centerRight,
             child: pw.Text(
-              provisional ? 'PHIẾU TẠM - CHỜ ĐỒNG BỘ' : 'HÓA ĐƠN BÁN HÀNG',
-              style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold),
+              'Trang ${context.pageNumber}/${context.pagesCount}',
+              style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
             ),
           ),
-          pw.SizedBox(height: 15),
-          pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              pw.Text('Mã đơn: ${order['id']}', style: regular),
-              pw.Text('Ngày: $date', style: regular),
-            ],
+        ),
+        build: (_) => [
+          _heading(
+            store,
+            order,
+            customerSnapshot(order),
+            compact: false,
+            provisional: provisional,
+            demo: demo,
           ),
-          pw.SizedBox(height: 13),
-          // Khung khách hàng CỐ ĐỊNH, kéo dài hết phần ngang sử dụng của giấy.
-          pw.Row(
-            children: [
-              pw.Expanded(
-                child: pw.Container(
-                  padding: const pw.EdgeInsets.fromLTRB(12, 10, 12, 10),
-                  decoration: pw.BoxDecoration(
-                    border: pw.Border.all(color: PdfColors.black, width: 0.7),
-                    borderRadius: const pw.BorderRadius.all(
-                      pw.Radius.circular(6),
-                    ),
-                  ),
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text('Khách hàng: $customerName', style: bold),
-                      pw.SizedBox(height: 6),
-                      pw.Text(
-                        'Địa chỉ: ${(order['customerAddress'] as String? ?? '').trim()}',
-                        style: regular,
-                      ),
-                      pw.SizedBox(height: 6),
-                      pw.Text(
-                        'ĐT: ${(order['customerPhone'] as String? ?? '').trim()}',
-                        style: regular,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          pw.SizedBox(height: 18),
           pw.TableHelper.fromTextArray(
             headers: [
               'STT',
-              'Tên hàng hóa',
+              'Hàng hóa',
               'SL',
               'ĐVT',
               'Đơn giá',
@@ -180,219 +243,173 @@ class PrintService {
               for (var i = 0; i < lines.length; i++)
                 [
                   '${i + 1}',
-                  '${lines[i]['name']}${(lines[i]['note'] as String? ?? '').isEmpty ? '' : '\n${lines[i]['note']}'}',
-                  NumberFormat('0.####', 'vi').format(_saleQuantity(lines[i])),
+                  '${lines[i]['name']}${_roundingNote(lines[i]).isEmpty ? '' : '\n${_roundingNote(lines[i])}'}',
+                  _saleQuantity(lines[i]),
                   _saleUnit(lines[i]),
-                  NumberFormat.decimalPattern('vi')
-                      .format(_saleUnitPrice(lines[i])),
+                  _saleUnitPrice(lines[i]),
                   NumberFormat.decimalPattern('vi').format(lines[i]['amount']),
                 ],
             ],
             headerStyle: pw.TextStyle(
+              fontSize: 9,
               fontWeight: pw.FontWeight.bold,
-              fontSize: 10,
             ),
-            cellStyle: const pw.TextStyle(fontSize: 10),
+            cellStyle: const pw.TextStyle(fontSize: 9.5),
             headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
-            border: pw.TableBorder.all(color: PdfColors.black, width: 0.55),
+            border: pw.TableBorder.all(color: PdfColors.grey500, width: .5),
             cellPadding: const pw.EdgeInsets.symmetric(
-              horizontal: 7,
-              vertical: 9,
+              horizontal: 5,
+              vertical: 7,
             ),
             columnWidths: {
-              0: const pw.FlexColumnWidth(0.6),
-              1: const pw.FlexColumnWidth(3.2),
-              2: const pw.FlexColumnWidth(0.9),
-              3: const pw.FlexColumnWidth(0.8),
-              4: const pw.FlexColumnWidth(1.45),
-              5: const pw.FlexColumnWidth(1.6),
+              0: const pw.FixedColumnWidth(25),
+              1: const pw.FlexColumnWidth(),
+              2: const pw.FixedColumnWidth(43),
+              3: const pw.FixedColumnWidth(44),
+              4: const pw.FixedColumnWidth(77),
+              5: const pw.FixedColumnWidth(88),
             },
             cellAlignments: {
               0: pw.Alignment.center,
+              1: pw.Alignment.centerLeft,
               2: pw.Alignment.centerRight,
               3: pw.Alignment.center,
               4: pw.Alignment.centerRight,
               5: pw.Alignment.centerRight,
             },
           ),
-          // Khoảng trống cố ý để viết tay, không thêm ô hoặc đường kẻ.
-          pw.SizedBox(height: 76),
-          pw.Row(
-            children: [
-              pw.Spacer(flex: 2),
-              pw.Expanded(
-                flex: 3,
-                child: pw.Column(
-                  children: [
-                    summaryRow('Tổng tiền hàng:', money(subtotal + discount)),
-                    summaryRow(
-                      'Giảm giá:',
-                      discount == 0 ? money(0) : '-${money(discount)}',
-                    ),
-                    summaryRow('Phí vận chuyển:', money(ship)),
-                    pw.Divider(thickness: 0.7, color: PdfColors.black),
-                    pw.Container(
-                      padding: const pw.EdgeInsets.symmetric(
-                        horizontal: 9,
-                        vertical: 10,
-                      ),
-                      color: PdfColors.grey200,
-                      child: pw.Row(
-                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                        children: [
-                          pw.Text('Tổng thanh toán:', style: bold),
-                          pw.Text(money(total), style: bold),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          // Không in câu "Cảm ơn quý khách!", logo, mã vạch hoặc chữ ký.
-          // Phiếu tạm cần có dấu hiệu nhận biết để không nhầm với hóa đơn
-          // đã được máy chủ xác nhận.
-          if (provisional) ...[
-            pw.SizedBox(height: 12),
-            pw.Text(
-              'Đơn đang lưu trên thiết bị, chờ đồng bộ.',
-              style: const pw.TextStyle(fontSize: 9),
+          pw.SizedBox(height: 14),
+          pw.Align(
+            alignment: pw.Alignment.centerRight,
+            child: pw.SizedBox(
+              width: 275,
+              child: _totals(order, compact: false, provisional: provisional),
             ),
-          ],
+          ),
+          if (provisional)
+            pw.Padding(
+              padding: const pw.EdgeInsets.only(top: 8),
+              child: pw.Text('Lưu trên thiết bị, chưa xác nhận máy chủ.'),
+            ),
         ],
       ),
     );
     return doc.save();
   }
 
-  /// KV804 paper roll: 80 mm thermal receipt, NO image/barcode/font icon.
-  /// Windows shows the system printer selector; this does not send raw USB.
+  /// Compatibility entry point for PDF export; printing uses the measured format.
   static Future<Uint8List> receipt80Pdf(
     Json order,
     String customerName, {
+    bool demo = false,
+    bool provisional = false,
+    pw.ThemeData? fontTheme,
+  }) async => (await receipt80(
+    order,
+    customerName,
+    demo: demo,
+    provisional: provisional,
+    fontTheme: fontTheme,
+  )).bytes;
+
+  /// Auto-height paper avoids guessing a roll length from the item count.
+  static Future<({Uint8List bytes, PdfPageFormat format})> receipt80(
+    Json order,
+    String customerName, {
+    bool demo = false,
     bool provisional = false,
     pw.ThemeData? fontTheme,
   }) async {
-    if ((!provisional && order['status'] != 'Đã bán') ||
-        (provisional && order['status'] != 'Chờ đồng bộ')) {
-      throw StateError('Chỉ in đơn đã bán hoặc phiếu tạm chờ đồng bộ.');
-    }
+    _validateInvoice(order, provisional);
     final store = StoreProfile.current;
     final lines = (order['lines'] as List).cast<Map>();
-    final at = (order['soldAt'] ?? order['at']) as String;
-    final when = DateFormat('dd/MM/yyyy HH:mm')
-        .format(DateTime.parse(at).toLocal());
-    final subtotal = (order['subtotal'] as num).toInt();
-    final discount = (order['discount'] as num? ?? 0).toInt();
-    final ship = (order['ship'] as num? ?? 0).toInt();
-    final total = (order['total'] as num).toInt();
-    // Enough room for longer product descriptions, with a practical upper bound.
-    final heightMm = (125 + lines.length * 29).clamp(160, 1800).toDouble();
-    final doc = pw.Document(theme: fontTheme ?? await theme());
-    final body = pw.TextStyle(fontSize: 9);
-    final strong = pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold);
-    pw.Widget line(String title, String value, {bool isBold = false}) => pw.Row(
-      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-      children: [
-        pw.Text(title, style: isBold ? strong : body),
-        pw.Text(value, style: isBold ? strong : body),
-      ],
-    );
-    doc.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat(
-          80 * PdfPageFormat.mm,
-          heightMm * PdfPageFormat.mm,
-          marginAll: 4 * PdfPageFormat.mm,
-        ),
-        build: (_) => [
-          pw.Center(
-            child: pw.Text(
-              'VLXD ${store.name}',
-              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
-            ),
+    final fonts = fontTheme ?? await theme();
+    final doc = pw.Document(theme: fonts);
+    final page = pw.Page(
+      pageFormat: PdfPageFormat.roll80,
+      margin: const pw.EdgeInsets.all(4 * PdfPageFormat.mm),
+      theme: fonts.copyWith(defaultTextStyle: const pw.TextStyle(fontSize: 9)),
+      build: (_) => pw.Column(
+        mainAxisSize: pw.MainAxisSize.min,
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+        children: [
+          _heading(
+            store,
+            order,
+            customerSnapshot(order),
+            compact: true,
+            provisional: provisional,
+            demo: demo,
           ),
-          if (store.address.isNotEmpty)
-            pw.Center(
-              child: pw.Text(
-                store.address,
-                style: const pw.TextStyle(fontSize: 8),
-                textAlign: pw.TextAlign.center,
-              ),
+          pw.Divider(color: PdfColors.grey600),
+          for (var i = 0; i < lines.length; i++) ...[
+            pw.Text(
+              '${i + 1}. ${lines[i]['name']}',
+              style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
             ),
-          if (store.phone.isNotEmpty)
-            pw.Center(child: pw.Text(store.phone, style: body)),
-          pw.SizedBox(height: 5),
-          pw.Divider(thickness: 1),
-          pw.Center(
-            child: pw.Text(
-              provisional ? 'PHIẾU TẠM - CHỜ ĐỒNG BỘ' : 'PHIẾU BÁN HÀNG',
-              style: strong,
-            ),
-          ),
-          pw.SizedBox(height: 6),
-          pw.Text('Mã đơn: ${order['id']}', style: body),
-          pw.Text('Ngày: $when', style: body),
-          pw.Text('Khách hàng: $customerName', style: body),
-          if ((order['customerPhone'] as String? ?? '').isNotEmpty)
-            pw.Text('ĐT: ${order['customerPhone']}', style: body),
-          pw.Divider(thickness: 0.6),
-          for (final item in lines) ...[
-            pw.Text('${item['name']}', style: strong),
-            if ((item['note'] as String? ?? '').trim().isNotEmpty)
-              pw.Text('Ghi chú: ${item['note']}', style: body),
+            pw.SizedBox(height: 3),
             pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Expanded(
                   child: pw.Text(
-                    '${NumberFormat('0.####', 'vi').format(_saleQuantity(item))} '
-                    '${_saleUnit(item)} × '
-                    '${NumberFormat.decimalPattern('vi').format(_saleUnitPrice(item))}',
-                    style: body,
+                    _completeLine(lines[i])
+                        ? '${_saleQuantity(lines[i])} ${_saleUnit(lines[i])}\n× ${_saleUnitPrice(lines[i])}'
+                        : '',
                   ),
                 ),
-                pw.Text(money((item['amount'] as num).toInt()), style: body),
+                pw.SizedBox(width: 6),
+                pw.Expanded(
+                  child: pw.Text(
+                    money((lines[i]['amount'] as num).toInt()),
+                    textAlign: pw.TextAlign.right,
+                  ),
+                ),
               ],
             ),
-            pw.SizedBox(height: 4),
+            if (_roundingNote(lines[i]).isNotEmpty)
+              pw.Text(
+                _roundingNote(lines[i]),
+                style: const pw.TextStyle(fontSize: 8),
+              ),
+            pw.SizedBox(height: 7),
           ],
-          pw.Divider(thickness: 0.6),
-          line('Tổng tiền hàng', money(subtotal + discount)),
-          line('Giảm giá', discount == 0 ? money(0) : '-${money(discount)}'),
-          line('Phí vận chuyển', money(ship)),
-          pw.Divider(thickness: 0.6),
-          line('TỔNG THANH TOÁN', money(total), isBold: true),
-          if (provisional) ...[
-            pw.SizedBox(height: 6),
+          pw.Divider(color: PdfColors.grey600),
+          _totals(order, compact: true, provisional: provisional),
+          if (provisional)
             pw.Text(
-              'Lưu trên thiết bị - chưa xác nhận máy chủ.',
+              'Lưu trên thiết bị, chưa xác nhận máy chủ.',
               style: const pw.TextStyle(fontSize: 8),
             ),
-          ],
         ],
       ),
     );
-    return doc.save();
+    doc.addPage(page);
+    final bytes = await doc.save();
+    return (bytes: bytes, format: page.pageFormat);
   }
 
   static String money(int n) =>
       '${NumberFormat.decimalPattern('vi').format(n)} đ';
-  static Future<pw.ThemeData> theme() async => pw.ThemeData.withFont(
-    base: await PdfGoogleFonts.notoSansRegular(),
-    bold: await PdfGoogleFonts.notoSansBold(),
+  static Future<pw.ThemeData> theme() => _fontTheme ??= _loadFonts();
+
+  static Future<pw.ThemeData> _loadFonts() async => pw.ThemeData.withFont(
+    base: pw.Font.ttf(
+      await rootBundle.load('assets/fonts/NotoSans-Regular.ttf'),
+    ),
+    bold: pw.Font.ttf(await rootBundle.load('assets/fonts/NotoSans-Bold.ttf')),
   );
   static Future<void> barcode(Product p) async {
     final store = StoreProfile.current;
+    const format = PdfPageFormat(
+      80 * PdfPageFormat.mm,
+      100 * PdfPageFormat.mm,
+      marginAll: 5 * PdfPageFormat.mm,
+    );
     final doc = pw.Document(theme: await theme());
     doc.addPage(
       pw.Page(
-        pageFormat: const PdfPageFormat(
-          80 * PdfPageFormat.mm,
-          100 * PdfPageFormat.mm,
-          marginAll: 5 * PdfPageFormat.mm,
-        ),
+        pageFormat: format,
         build: (_) => pw.Column(
           children: [
             pw.Text(
@@ -417,6 +434,9 @@ class PrintService {
     );
     await Printing.layoutPdf(
       name: 'ma-vach-${p.code}.pdf',
+      format: format,
+      dynamicLayout: false,
+      forceCustomPrintPaper: true,
       onLayout: (_) => doc.save(),
     );
   }

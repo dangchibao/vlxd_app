@@ -7,6 +7,7 @@ class OfflineCheckoutLine {
 
   /// Optional in older pending checkouts; empty means legacy/base unit.
   final String saleUnit;
+  final String? saleQuantity;
   final num quotedPrice;
   final num quotedRatio;
 
@@ -15,6 +16,7 @@ class OfflineCheckoutLine {
     required this.area,
     required this.note,
     this.saleUnit = '',
+    this.saleQuantity,
     required this.quotedPrice,
     required this.quotedRatio,
   });
@@ -24,6 +26,7 @@ class OfflineCheckoutLine {
     'area': area,
     'note': note,
     if (saleUnit.isNotEmpty) 'saleUnit': saleUnit,
+    if (saleQuantity != null) 'saleQuantity': saleQuantity,
     'quotedPrice': quotedPrice,
     'quotedRatio': quotedRatio,
   };
@@ -34,6 +37,7 @@ class OfflineCheckoutLine {
       area: json['area'] as int,
       note: json['note'] as String,
       saleUnit: json['saleUnit'] as String? ?? '',
+      saleQuantity: json['saleQuantity'] as String?,
       quotedPrice: json['quotedPrice'] as num,
       quotedRatio: json['quotedRatio'] as num,
     );

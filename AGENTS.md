@@ -12,7 +12,7 @@
 - Flutter/Dart + GetX. `SessionController` quản lý Auth/hồ sơ; `ShopController` điều phối giỏ và repository; `ShopData` trong domain chứa nghiệp vụ.
 - Interface `ShopRepository`/`TransactionalShopRepository` nằm trong `lib/data/demo_repository.dart`. Live là `FirestoreRepository`; demo là SharedPreferences, tách bằng DEMO_MODE.
 - UI là thư viện `lib/ui/app.dart` với các file `part`. Tận dụng field/panel/dialog/theme, model và service hiện có. Không tách/rewrite toàn UI, thay GetX hoặc đưa framework mới vào để làm một tính năng nhỏ.
-- SQLite/offline-first mới là hướng dự kiến, **chưa triển khai**. Không thêm package SQLite, đổi schema hoặc chuyển production repository nếu chưa có tác vụ/thiết kế được duyệt rõ ràng. Đọc mục G0–G2 trong PROJECT_STATUS khi thực hiện nhóm đó.
+- SQLite/Drift đã lưu nháp, cache theo UID và Outbox; sync engine đồng bộ bán hàng, nhập kho, thu nợ khi app mở. Firestore vẫn xác nhận chứng từ chính thức. Không đổi schema/repository hoặc coi mọi thao tác đều ghi được offline; xem PROJECT_STATUS.md.
 - Không coi Firestore cache hoặc demo SharedPreferences là offline-first production. Không bỏ cơ chế revision/requestId hiện tại trước khi cơ chế thay thế được kiểm thử.
 
 ## Bất biến nghiệp vụ
@@ -33,7 +33,7 @@
 
 ## Dữ liệu thật, dịch vụ và dependency
 
-- Firebase production: `vlxd-bay-hai`, namespace `stores/bay-hai`, hồ sơ `users`. Kho đã có dữ liệu; không tự seed, reset, xóa, import hoặc ghi đè.
+- Firebase production: `vlxd-bay-hai`. Bảy Hải: `stores/bay-hai`, hồ sơ `users`; Hai Sóc: `stores/hai-soc`, hồ sơ `members` trong cửa hàng. Kho đã có dữ liệu; không tự seed, reset, xóa, import hoặc ghi đè.
 - Không đưa service-account, ADC, mật khẩu hoặc token vào Flutter/Git/log/chat. Không in thông tin credential khi điều tra.
 - Không tự bật Blaze/billing, Storage trả phí, SMS hay dịch vụ ngoài có phí. Spark là ưu tiên; không cam kết miễn phí vô hạn hoặc tự động đổi nhà cung cấp.
 - Không tự thay Firebase project/app IDs, firebase_options, bundle/package IDs, schema/version, database hoặc auth flow. Migration cần thiết kế, kiểm tra bằng bản sao và phương án phục hồi; không chạy trên kho thật theo suy đoán.
@@ -71,7 +71,7 @@ flutter test --no-pub
 Rules và integration luôn dùng project demo, không dùng project thật:
 
 ```powershell
-$env:JAVA_HOME = (Resolve-Path '.tools/jdk21/jdk-21.0.13+9').Path
+$env:JAVA_HOME = 'D:\jdk21' # Đường dẫn đã xác minh trên máy này; không sửa biến hệ thống.
 $env:Path = "$env:JAVA_HOME/bin;$env:Path"
 firebase emulators:exec --only firestore,auth --project demo-vlxd-tests --config firebase.emulator.json "node --test tools/security-tests/rules.test.mjs"
 # Chạy riêng khi thay luồng đồng bộ/phiên và máy có Windows toolchain:
@@ -88,7 +88,7 @@ flutter build apk --debug --no-pub
 flutter build windows --release --no-pub
 ```
 
-Flutter hiện có ở `C:\src\flutter\bin\flutter.bat` nếu PATH thiếu; Dart format ở `C:\src\flutter\bin\cache\dart-sdk\bin\dart.exe`. Không sửa biến môi trường hệ thống chỉ để chạy một lệnh. Công cụ chưa có/quyền bị chặn thì báo đúng giới hạn, không coi là kiểm tra thành công.
+Flutter hiện có ở `D:\development\flutter\bin\flutter.bat` nếu PATH thiếu; Dart format ở `D:\development\flutter\bin\cache\dart-sdk\bin\dart.exe`. Không sửa biến môi trường hệ thống chỉ để chạy một lệnh. Công cụ chưa có/quyền bị chặn thì báo đúng giới hạn, không coi là kiểm tra thành công.
 
 ## Tài liệu và kết thúc tác vụ
 

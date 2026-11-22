@@ -49,6 +49,15 @@ void main() {
       await tester.pumpWidget(const BayHaiApp());
       await tester.pumpAndSettle();
 
+      // Product administration is separate from the main sale tap target.
+      expect(
+        find.byKey(const ValueKey('edit-sale-product-PR6060VD')),
+        findsNothing,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('sale-product-options-PR6060VD')),
+      );
+      await tester.pumpAndSettle();
       // Kiểm tra mở chức năng sửa sản phẩm.
       await tester.tap(
         find.byKey(const ValueKey('edit-sale-product-PR6060VD')),
@@ -123,6 +132,11 @@ void main() {
       const ValueKey('delete-sale-product-PR6060VD'),
     );
 
+    expect(deleteButton, findsNothing);
+    await tester.tap(
+      find.byKey(const ValueKey('sale-product-options-PR6060VD')),
+    );
+    await tester.pumpAndSettle();
     expect(deleteButton, findsOneWidget);
     expect(c.cart, hasLength(1));
 
@@ -147,6 +161,10 @@ void main() {
     expect(c.cart, isEmpty);
 
     // BƯỚC 4: Mở xác nhận ngừng bán rồi chọn Hủy.
+    await tester.tap(
+      find.byKey(const ValueKey('sale-product-options-PR6060VD')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(deleteButton);
     await tester.pumpAndSettle();
 
@@ -158,6 +176,10 @@ void main() {
     expect(c.data.product('PR6060VD').active, isTrue);
 
     // BƯỚC 5: Xác nhận ngừng kinh doanh.
+    await tester.tap(
+      find.byKey(const ValueKey('sale-product-options-PR6060VD')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(deleteButton);
     await tester.pumpAndSettle();
 

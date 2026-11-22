@@ -239,8 +239,16 @@ Widget productLotCostBadge(Product product) {
   );
 }
 
-class ProductsPage extends StatelessWidget {
+class ProductsPage extends StatefulWidget {
   const ProductsPage({super.key});
+  @override
+  State<ProductsPage> createState() => _ProductsPageState();
+}
+
+class _ProductsPageState extends State<ProductsPage> {
+  bool dense = !VlxdDisplayPreferences.instance.comfortableDensity;
+  // Presentation-only. Keep category/specification filters and their values intact.
+  bool showAdvancedFilters = false;
   @override
   Widget build(BuildContext context) {
     final c = Get.find<ShopController>();
@@ -276,49 +284,89 @@ class ProductsPage extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 16),
-        hint('Nhóm hàng gợi ý (tự nhận diện; chưa thay đổi phân loại đã lưu)'),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            FilterChip(
+              label: const Text('Danh sách gọn'),
+              selected: dense,
+              onSelected: (value) => setState(() => dense = value),
+            ),
+            TextButton.icon(
+              onPressed: () => setState(
+                () => showAdvancedFilters = !showAdvancedFilters,
+              ),
+              icon: Icon(
+                showAdvancedFilters ? Icons.expand_less : Icons.tune,
+                size: 18,
+              ),
+              label: Text(
+                showAdvancedFilters ? 'Ẩn bộ lọc nâng cao' : 'Bộ lọc nâng cao',
+              ),
+            ),
+            Text(
+              '${c.catalogProducts.length} sản phẩm',
+              style: const TextStyle(color: Colors.blueGrey, fontSize: 12),
+            ),
+          ],
+        ),
+        if (!showAdvancedFilters &&
+            (c.catalogCategory != 'Tất cả' || c.group != 'Tất cả'))
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: hint(
+              'Đang lọc: ${c.catalogCategory}'
+              '${c.group == 'Tất cả' ? '' : ' • ${c.group}'}',
+            ),
+          ),
+        if (showAdvancedFilters) ...[
+          const SizedBox(height: 8),
+          hint('Nhóm hàng gợi ý (không sửa phân loại đã lưu)'),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: c.catalogCategories
+                .map(
+                  (category) => ChoiceChip(
+                    label: Text(category),
+                    selected: c.catalogCategory == category,
+                    onSelected: (_) {
+                      c.catalogCategory = category;
+                      c.group = 'Tất cả';
+                      c.update();
+                    },
+                  ),
+                )
+                .toList(),
+          ),
+          const SizedBox(height: 8),
+          hint('Lọc quy cách / kích thước thực tế'),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: c.catalogSpecifications
+                .map(
+                  (specification) => ChoiceChip(
+                    label: Text(specification),
+                    selected: c.group == specification,
+                    onSelected: (_) {
+                      c.group = specification;
+                      c.update();
+                    },
+                  ),
+                )
+                .toList(),
+          ),
+        ],
         const SizedBox(height: 6),
         Wrap(
           spacing: 8,
           runSpacing: 6,
-          children: c.catalogCategories
-              .map(
-                (category) => ChoiceChip(
-                  label: Text(category),
-                  selected: c.catalogCategory == category,
-                  onSelected: (_) {
-                    c.catalogCategory = category;
-                    c.group = 'Tất cả';
-                    c.update();
-                  },
-                ),
-              )
-              .toList(),
-        ),
-        const SizedBox(height: 12),
-        hint('Lọc quy cách / kích thước thực tế'),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 8,
-          runSpacing: 6,
-          children: c.catalogSpecifications
-              .map(
-                (specification) => ChoiceChip(
-                  label: Text(specification),
-                  selected: c.group == specification,
-                  onSelected: (_) {
-                    c.group = specification;
-                    c.update();
-                  },
-                ),
-              )
-              .toList(),
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
           children: ['Đang bán', 'Ngừng bán', 'Đã ẩn', 'Xóa nhầm', 'Tất cả']
               .map(
                 (value) => ChoiceChip(
@@ -332,7 +380,7 @@ class ProductsPage extends StatelessWidget {
               )
               .toList(),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         if (c.catalogProducts.isEmpty)
           const EmptyState(
             'Không tìm thấy sản phẩm',
@@ -341,108 +389,247 @@ class ProductsPage extends StatelessWidget {
           ),
         VlxdPagedList<Product>(
           key: ValueKey(
-            'catalog-${c.query}-${c.catalogCategory}-${c.group}-${c.catalogStatus}',
+            'catalog-${c.query}-${c.catalogCategory}-${c.group}-${c.catalogStatus}-$dense',
           ),
           items: c.catalogProducts,
-          pageSize: 10,
-          itemBuilder: (p) => Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: panel(
-              LayoutBuilder(
-                builder: (context, box) => Column(
-                  children: [
-                    Row(
-                      children: [
-                        SizedBox(
-                          width: 66,
-                          height: 66,
-                          child: ProductPicture(p),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+          pageSize: dense ? 20 : 10,
+          itemBuilder: (p) => dense
+              ? _compactProduct(context, p)
+              : Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: panel(
+                    LayoutBuilder(
+                      builder: (context, box) => Column(
+                        children: [
+                          Row(
                             children: [
-                              Text(
-                                p.name,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 16,
-                                ),
+                              SizedBox(
+                                width: 66,
+                                height: 66,
+                                child: ProductPicture(p),
                               ),
-                              hint('${p.code} • ${p.size} • ${p.supplier}'),
-                              if (p.deleted)
-                                hint('Đã xóa mềm • giữ mã SKU')
-                              else if (p.archivedFromLists)
-                                hint('Đã ẩn khỏi danh sách')
-                              else if (!p.active)
-                                hint('Ngừng kinh doanh'),
-                              const SizedBox(height: 6),
-                              Wrap(
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                spacing: 12,
-                                runSpacing: 6,
-                                children: [
-                                  productLotCostBadge(p),
-                                  Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Text(
-                                        'GIÁ BÁN',
-                                        style: TextStyle(
-                                          color: blue,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w800,
-                                        ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      p.name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 16,
                                       ),
+                                    ),
+                                    hint(
+                                      '${p.code} • ${p.size} • ${p.supplier}',
+                                    ),
+                                    if (p.deleted)
+                                      hint('Đã xóa mềm • giữ mã SKU')
+                                    else if (p.archivedFromLists)
+                                      hint('Đã ẩn khỏi danh sách')
+                                    else if (!p.active)
+                                      hint('Ngừng kinh doanh'),
+                                    const SizedBox(height: 6),
+                                    Wrap(
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      spacing: 12,
+                                      runSpacing: 6,
+                                      children: [
+                                        productLotCostBadge(p),
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Text(
+                                              'GIÁ BÁN',
+                                              style: TextStyle(
+                                                color: blue,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                            Text(
+                                              '${money(p.price)} / ${p.unit}',
+                                              style: const TextStyle(
+                                                color: blue,
+                                                fontSize: 17,
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 3),
+                                    hint(
+                                      'Còn ${area(p.available)} ${p.unit}${p.hasPackConversion ? ' • ${NumberFormat('0.##', 'vi').format(p.available / p.ratio)} ${p.secondaryUnit} (${conversionHint(p)})' : ''}',
+                                    ),
+                                    if (p.note.isNotEmpty)
                                       Text(
-                                        '${money(p.price)} / ${p.unit}',
+                                        'Lưu ý: ${p.note}',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
                                         style: const TextStyle(
-                                          color: blue,
-                                          fontSize: 17,
-                                          fontWeight: FontWeight.w800,
+                                          fontSize: 12,
+                                          color: Color(0xFF657993),
                                         ),
                                       ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 3),
-                              hint(
-                                'Còn ${area(p.available)} ${p.unit}${p.hasPackConversion ? ' • ${NumberFormat('0.##', 'vi').format(p.available / p.ratio)} ${p.secondaryUnit} (${conversionHint(p)})' : ''}',
-                              ),
-                              if (p.note.isNotEmpty)
-                                Text(
-                                  'Lưu ý: ${p.note}',
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Color(0xFF657993),
-                                  ),
+                                  ],
                                 ),
+                              ),
+                              if (box.maxWidth > 700) actions(context, p),
                             ],
                           ),
-                        ),
-                        if (box.maxWidth > 700) actions(context, p),
-                      ],
-                    ),
-                    if (box.maxWidth <= 700)
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: actions(context, p),
+                          if (box.maxWidth <= 700)
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: actions(context, p),
+                            ),
+                        ],
                       ),
-                  ],
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          ),
         ),
       ],
     );
   }
+
+  // Keep the original four product action glyphs below unchanged.
+  // Detail content uses natural height; desktop = 3 columns, smaller widths wrap.
+  Widget _compactProduct(BuildContext context, Product p) {
+    final cost = latestRecordedLotCost(p);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 6),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: Color(0xFFDCE5F0)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: ExpansionTile(
+        key: PageStorageKey('compact-product-${p.id}'),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
+        leading: SizedBox(width: 40, height: 40, child: ProductPicture(p)),
+        title: Text(
+          p.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text(
+          '${p.code} • ${money(p.price)}/${p.unit}\n'
+          '${productAvailability(p)} • Khả dụng ${area(p.available)} ${p.unit}',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 720
+                  ? 3
+                  : constraints.maxWidth >= 430
+                  ? 2
+                  : 1;
+              final factWidth =
+                  (constraints.maxWidth - (columns - 1) * 12) / columns;
+              return Wrap(
+                alignment: WrapAlignment.start,
+                spacing: 12,
+                runSpacing: 7,
+                children: [
+                  _compactCatalogFact(
+                    label: 'Quy cách / hãng',
+                    value: [p.size, p.supplier].where((v) => v.isNotEmpty).join(' • '),
+                    width: factWidth,
+                  ),
+                  if (p.hasPackConversion)
+                    _compactCatalogFact(
+                      label: 'Quy đổi',
+                      value: conversionHint(p),
+                      width: factWidth,
+                    ),
+                  _compactCatalogFact(
+                    label: 'Giá vốn lô gần nhất',
+                    value: cost == null
+                        ? 'Chưa có dữ liệu'
+                        : '${money(cost)} / ${p.unit}',
+                    width: factWidth,
+                    highlight: true,
+                  ),
+                ],
+              );
+            },
+          ),
+          if (p.deleted || p.archivedFromLists || !p.active)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                p.deleted
+                    ? 'Đã xóa mềm'
+                    : p.archivedFromLists
+                    ? 'Đã ẩn khỏi danh sách'
+                    : 'Ngừng kinh doanh',
+                style: const TextStyle(color: Color(0xFFB45309), fontSize: 12),
+              ),
+            ),
+          if (p.note.isNotEmpty)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Lưu ý: ${p.note}',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF526579)),
+                ),
+              ),
+            ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: actions(context, p),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _compactCatalogFact({
+    required String label,
+    required String value,
+    required double width,
+    bool highlight = false,
+  }) => SizedBox(
+    width: width,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: highlight ? const Color(0xFF805500) : const Color(0xFF64748B),
+            ),
+          ),
+          Text(
+            value.isEmpty ? '—' : value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: highlight ? const Color(0xFF805500) : const Color(0xFF17345E),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 
   Widget actions(BuildContext context, Product p) => Wrap(
     spacing: 2,

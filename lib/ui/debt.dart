@@ -84,70 +84,62 @@ class _DebtPageState extends State<DebtPage> {
               ],
             ),
             const SizedBox(height: 12),
-            LayoutBuilder(
-              builder: (context, metricsBox) {
-                final cols = metricsBox.maxWidth >= 650 ? 3 : 1;
-                return Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children:
-                      [
-                            _summary(
-                              'Tổng khách hàng',
-                              '${c.data.customers.where((x) => x['active'] != false).length}',
-                              Icons.people_outline,
-                              blue,
-                            ),
-                            _summary(
-                              'Công nợ phải thu',
-                              money(debt),
-                              Icons.account_balance_wallet_outlined,
-                              const Color(0xFFD28A16),
-                            ),
-                            _summary(
-                              'Khách còn nợ',
-                              '${c.data.customers.where((x) => c.data.debt(x['id']) > 0).length}',
-                              Icons.person_search_outlined,
-                              const Color(0xFF168366),
-                            ),
-                          ]
-                          .map(
-                            (w) => SizedBox(
-                              width:
-                                  (metricsBox.maxWidth - (cols - 1) * 12) /
-                                  cols,
-                              child: w,
-                            ),
-                          )
-                          .toList(),
-                );
-              },
-            ),
+            if (!salary)
+              LayoutBuilder(
+                builder: (context, metricsBox) {
+                  final cols = metricsBox.maxWidth >= 650
+                      ? 3
+                      : metricsBox.maxWidth >= 360
+                      ? 2
+                      : 1;
+                  return Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children:
+                        [
+                              _summary(
+                                'Tổng khách hàng',
+                                '${c.data.customers.where((x) => x['active'] != false).length}',
+                                Icons.people_outline,
+                                blue,
+                              ),
+                              _summary(
+                                'Công nợ phải thu',
+                                money(debt),
+                                Icons.account_balance_wallet_outlined,
+                                const Color(0xFFD28A16),
+                              ),
+                              _summary(
+                                'Khách còn nợ',
+                                '${c.data.customers.where((x) => c.data.debt(x['id']) > 0).length}',
+                                Icons.person_search_outlined,
+                                const Color(0xFF168366),
+                              ),
+                            ]
+                            .map(
+                              (w) => SizedBox(
+                                width:
+                                    (metricsBox.maxWidth - (cols - 1) * 12) /
+                                    cols,
+                                child: w,
+                              ),
+                            )
+                            .toList(),
+                  );
+                },
+              ),
             const SizedBox(height: 12),
-            if (wide)
+            if (salary)
+              payroll
+            else if (wide)
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    flex: 6,
-                    child: Column(
-                      children: [
-                        if (!salary) ...[
-                          customerPanel,
-                          const SizedBox(height: 10),
-                        ],
-                        payroll,
-                      ],
-                    ),
-                  ),
-                  if (!salary) ...[
-                    const SizedBox(width: 16),
-                    Expanded(flex: 4, child: detail),
-                  ],
+                  Expanded(flex: 6, child: customerPanel),
+                  const SizedBox(width: 16),
+                  Expanded(flex: 4, child: detail),
                 ],
               )
-            else if (salary)
-              payroll
             else ...[
               customerPanel,
               const SizedBox(height: 10),
@@ -164,14 +156,14 @@ class _DebtPageState extends State<DebtPage> {
         Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
                 color: color.withValues(alpha: .09),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, color: color),
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -181,7 +173,7 @@ class _DebtPageState extends State<DebtPage> {
                   Text(
                     value,
                     style: const TextStyle(
-                      fontSize: 21,
+                      fontSize: 18,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -190,7 +182,7 @@ class _DebtPageState extends State<DebtPage> {
             ),
           ],
         ),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(10),
       );
 
   Widget _customers(
@@ -740,13 +732,13 @@ class _DebtPageState extends State<DebtPage> {
               spacing: 8,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                if (c.actor?.canAdmin == true)
+                if (c.actor?.canAccess == true)
                   FilledButton.icon(
                     onPressed: () => createPayroll(context),
                     icon: const Icon(Icons.add, size: 18),
                     label: const Text('Tạo kỳ lương'),
                   ),
-                if (c.actor?.canAdmin == true)
+                if (c.actor?.canAccess == true)
                   IconButton(
                     tooltip: 'Cài đặt lương',
                     onPressed: c.busy
@@ -793,7 +785,7 @@ class _DebtPageState extends State<DebtPage> {
                           children: [
                             IconButton(
                               tooltip: 'Sửa lương / ghi chi',
-                              onPressed: (c.busy || c.actor?.canAdmin != true)
+                              onPressed: (c.busy || c.actor?.canAccess != true)
                                   ? null
                                   : () => editSalary(context, p),
                               icon: const Icon(
@@ -803,7 +795,7 @@ class _DebtPageState extends State<DebtPage> {
                             ),
                             IconButton(
                               tooltip: 'Xóa kỳ lương khỏi danh sách',
-                              onPressed: (c.busy || c.actor?.canAdmin != true)
+                              onPressed: (c.busy || c.actor?.canAccess != true)
                                   ? null
                                   : () => _archivePayroll(context, c, p),
                               icon: const Icon(Icons.close, color: Colors.red),
@@ -841,7 +833,7 @@ class _DebtPageState extends State<DebtPage> {
     if (!approved) return;
     await attempt(
       () => c.change((d, actor) {
-        actor.requireAdmin();
+        actor.requireAccess();
         final index = d.payroll.indexWhere((x) => x['id'] == p['id']);
         if (index < 0 || jsonEncode(d.payroll[index]) != jsonEncode(p)) {
           throw StateError(

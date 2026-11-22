@@ -84,9 +84,7 @@ void main() {
       },
     );
   }
-  testWidgets('Sales can view payroll but cannot create, edit, or archive it', (
-    tester,
-  ) async {
+  testWidgets('Sales can create, edit, and archive payroll', (tester) async {
     Get.testMode = true;
     final c = Get.put(ShopController(MemoryRepository(), ShopData.sample()))
       ..enterDemo(Role.sales);
@@ -96,8 +94,8 @@ void main() {
     await tester.tap(find.widgetWithText(ChoiceChip, 'Lương nhân viên'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Tạo kỳ lương'), findsNothing);
-    expect(find.byTooltip('Cài đặt lương'), findsNothing);
+    expect(find.text('Tạo kỳ lương'), findsOneWidget);
+    expect(find.byTooltip('Cài đặt lương'), findsOneWidget);
     // find.byTooltip can match a RawTooltip descendant instead of
     // IconButton. Restrict the finder to IconButton before reading widgets.
     final iconButtons = tester
@@ -112,7 +110,7 @@ void main() {
     expect(editButtons, isNotEmpty);
     expect(archiveButtons, isNotEmpty);
     for (final button in [...editButtons, ...archiveButtons]) {
-      expect(button.onPressed, isNull);
+      expect(button.onPressed, isNotNull);
     }
     expect(c.actor!.role, Role.sales);
     expect(tester.takeException(), isNull);

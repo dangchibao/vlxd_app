@@ -1,6 +1,7 @@
 param(
   [switch]$Emulator,
   [switch]$ProductionAutoSync,
+  [switch]$DisableAutoSync,
   [string]$Output = 'build/web'
 )
 
@@ -8,6 +9,9 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
 
 if ($Emulator -and $ProductionAutoSync) { throw 'Emulator and production auto-sync are mutually exclusive.' }
+if ($DisableAutoSync -and ($Emulator -or $ProductionAutoSync)) {
+  throw 'DisableAutoSync cannot be combined with Emulator or ProductionAutoSync.'
+}
 if ($ProductionAutoSync -and $env:VLXD_PRODUCTION_BUILD_APPROVED -ne 'explicitly-reviewed') {
   throw 'Live auto-sync Web build must be started via tools/build-production-autosync.ps1.'
 }
@@ -15,7 +19,7 @@ if ($Emulator -and ($Output -eq 'build/web')) {
   throw 'Emulator builds must use a separate output directory.'
 }
 if ((-not $Emulator) -and ($Output -ne 'build/web')) {
-  Write-Warning 'Production build uses live Firebase config with auto-sync enabled.'
+  Write-Warning "Production build uses live Firebase config; auto-sync enabled: $(-not $DisableAutoSync)."
 }
 
 $argsList = @(
@@ -23,7 +27,11 @@ $argsList = @(
   '--no-web-resources-cdn', '--pwa-strategy=none',
   "--output=$Output"
 )
-if ($Emulator) {
+if ($DisableAutoSync) {
+  $argsList += '--dart-define=USE_FIREBASE_EMULATOR=false'
+  $argsList += '--dart-define=AUTO_SYNC_OUTBOX=false'
+  $argsList += '--dart-define=ALLOW_PRODUCTION_AUTO_SYNC=false'
+} elseif ($Emulator) {
   $argsList += '--dart-define=USE_FIREBASE_EMULATOR=true'
   $argsList += '--dart-define=AUTO_SYNC_OUTBOX=true'
 } elseif ($ProductionAutoSync) {

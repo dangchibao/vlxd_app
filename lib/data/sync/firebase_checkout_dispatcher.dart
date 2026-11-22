@@ -194,6 +194,7 @@ class FirebaseCheckoutDispatcher {
               line.area,
               note: line.note,
               saleUnit: line.saleUnit,
+              saleQuantity: line.saleQuantity,
             ),
           );
         }

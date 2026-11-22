@@ -1,148 +1,84 @@
-# Trạng thái dự án VLXD Bảy Hải
+# Tiến độ VLXD Hai Sóc – Bảy Hải
 
-Cập nhật: 04/11/2026 (Asia/Saigon). Tài liệu được khởi tạo qua rà soát có chọn lọc; các tác vụ tiếp theo được ghi tại mục 8. Không tự coi kết quả kiểm thử cũ là kiểm tra của lượt mới.
+Cập nhật: **22/11/2026**, Asia/Saigon. Đây là điểm tiếp tục công việc; kết quả cũ không thay thế kiểm tra mới.
 
-## 1. Kết luận hiện tại
+## In hóa đơn — Giai đoạn B, 22/11/2026
 
-- Đã có ứng dụng Flutter/GetX với nghiệp vụ bán hàng, kho, công nợ, hóa đơn và tài khoản; không phải dự án khởi tạo mới.
-- Production hiện dùng Firebase Auth + Firestore trực tiếp. **Chưa có SQLite hoặc offline-first cho dữ liệu thật.** SharedPreferences chỉ phục vụ bản demo và một số cấu hình.
-- Mục tiêu mới: Windows/Android/iOS, SQLite cục bộ + đồng bộ Firestore, ưu tiên Spark. Đây là hướng cần thiết kế và duyệt trước, chưa phải kiến trúc đã triển khai.
-- Chưa đủ căn cứ xác nhận sẵn sàng vận hành production trên cả ba nền tảng. Chưa nghiệm thu iPhone, máy in và mất mạng thực tế.
-- Không thay database, schema, phân quyền hoặc viết lại module đang hoạt động trong lượt lập kế hoạch.
-- Phạm vi mới đã xác nhận: giữ sync engine cho đơn hàng/kho/công nợ cùng các phần hoàn thiện đã đề xuất; **không thêm khách trả/đổi hàng hoặc xuất kho không bán**. SQLite và Firestore cần được đánh giá như hai tầng local/cloud trong G0, không thay thế tùy tiện hoặc kết nối trực tiếp từ widget. Lượt sửa giao diện không triển khai sync engine/migration.
-- Đánh giá sơ bộ cho G0: UI đọc dữ liệu local qua repository/GetX; SQLite lưu chứng từ/nháp/outbox, sync engine đối soát và chuyển thay đổi với Firestore. Không cho widget tự quyết định ghi SQLite hay Firestore theo từng ô nhập. Đây là phương án đề xuất cần chốt cơ chế xung đột và migration, không phải sync engine đã hoàn tất.
+- Cập nhật sau duyệt: chỉ ẩn `lines[].note` khi in A4/K80 tại `lib/ui/print_service.dart`, đổi tiêu đề cột thành `Hàng hóa`. Không xóa ghi chú gốc hoặc sửa ghi chú giao hàng/đơn hàng. Test in/hóa đơn **10/10 đạt**, analyze sạch; render và xem lại hai khổ, trích xuất PDF xác nhận không còn ghi chú sản phẩm và số lượng/đơn vị/tổng tiền giữ nguyên. Log `.qa/print-hide-notes-{tests,analyze}.log`; chưa in trên KV804.
+- Đã triển khai theo duyệt mới nhất: `saleQuantity` (chuỗi thập phân chính xác) đi từ ô nhập → giỏ/nháp/Outbox → checkout; dòng đơn mới lưu thêm `salePrice` (đơn giá theo đơn vị bán, đủ phần lẻ). Cả hai tùy chọn; payload cũ không bị bổ sung trường khi đọc/ghi lại. Không nâng version DB, không migration hoặc sửa dữ liệu lịch sử.
+- Giữ nguyên `area`, giá cơ sở, phân bổ lô, quy tắc làm tròn theo sản phẩm và thành tiền đã chốt. In sử dụng snapshot gốc; đơn giá quy đổi không làm tròn về VND trước khi hiển thị. Chênh lệch làm tròn/phân bổ ở từng dòng được ghi rõ `Làm tròn: ±… đ`, không ghi lại tiền vào chứng từ. Phiếu tạm áp dụng cùng phân bổ phần dư như checkout để tổng dòng khớp tổng phiếu.
+- Dòng cũ thiếu snapshot: cảnh báo trong ứng dụng/kiểm tra trước in trực tiếp; để trống SL/ĐVT/đơn giá chưa xác định. Không suy từ lượng kho hoặc sản phẩm hiện tại, không in cảnh báo kỹ thuật lên phiếu khách. Thiếu tên khách gốc thì dùng nhãn chung; không lấy hồ sơ khách hiện tại để in lại.
+- K80/A4 dùng chung formatter/tổng tiền và có lựa chọn khổ trong preview. Ghi `Tổng đã thanh toán`, `Còn nợ đơn này`; không gán thành tổng nợ khách. Dữ liệu hiện chưa có snapshot đáng tin cậy cho phương thức thanh toán/tiền khách đưa/tiền thừa/từng loại cọc, nên không tự dựng các mục này.
+- File nghiệp vụ: `lib/domain/{shop,unit_rules}.dart`, `lib/controllers/shop_controller.dart`, `lib/data/sync/{offline_checkout_command,firebase_checkout_dispatcher}.dart`; UI/in: `lib/ui/{sales,invoices,print_service}.dart`. Tận dụng font offline và bố cục đã sửa ở lượt trước; không thay Rules, Auth hoặc kiến trúc đồng bộ trong lượt in này.
+- Regression: thêm `test/invoice_snapshot_test.dart`; cập nhật `test/{print_layout,cart_draft_controller,sales_live_quantity,sales_offline_button}_test.dart`. Toàn suite **273/273 đạt**; sau đó bổ sung ca từ chối snapshot không hợp lệ, tên cửa hàng Hai Sóc và assertion đi qua UI/Outbox: **19/19 test liên quan đạt**. Analyze và diff whitespace đạt. Log: `.qa/invoice-snapshot-{suite,extra,analyze-final}.log`.
+- Đã render và xem A4/K80: tiếng Việt, đơn vị phụ/chính, số lẻ, đơn giá quy đổi, dòng cũ thiếu đơn vị và làm tròn; A4 60 dòng chia 4 trang có header/footer, không tràn/cắt. Đối chiếu PDF bằng pypdf: snapshot, giảm giá/phí giao, đã thu/nợ trùng nhau giữa hai khổ; Hai Sóc không mang tên/điện thoại Bảy Hải. Mẫu tại `output/pdf/`, PNG kiểm tra tại `.qa/print-preview/` (không đưa lên Hosting).
+- Chưa nghiệm thu máy in KV804, driver/lề thực tế hoặc điện thoại; chưa chạy lại integration hai client cho trường tùy chọn (unit/widget/serialization đã kiểm tra). Không tạo giao dịch thật, sửa đơn cũ, deploy, build setup hay push. Các mục rà soát bên dưới là kết quả theo thời điểm, không thay thế kết quả in mới này.
 
-## 2. Bản đồ đọc mã theo nhiệm vụ
+## Hiện trạng đã đối chiếu với source
 
-| Phần | Điểm vào / trách nhiệm hiện tại |
+- Flutter/GetX; SessionController quản lý Firebase Auth/hồ sơ, ShopController điều phối ShopData và repository. UI dùng part của lib/ui/app.dart, giữ nguyên kiến trúc.
+- Firestore là nguồn xác nhận chứng từ thật. Drift/SQLite đã triển khai cho nháp, cache theo UID có hạn 48 giờ và Outbox bán hàng/nhập kho/thu nợ. Không phải mọi nghiệp vụ đều ghi offline.
+- Auto-sync foreground kiểm tra 20 giây, yêu cầu phiên hợp lệ và xác minh server; lỗi/xung đột/bán âm cần xử lý theo luồng sẵn có. Khi đóng app không cam kết đồng bộ.
+- Chọn Hai Sóc/Bảy Hải trước đăng nhập. Bảy Hải: stores/bay-hai + users; Hai Sóc: stores/hai-soc + members. Auth persistence, local DB/outbox và dữ liệu nghiệp vụ tách theo cửa hàng/generation.
+- Đã có sản phẩm/ảnh/đơn vị tự nhập/quy đổi phụ, bán hàng/cọc/giảm giá, kho/lô, công nợ, giao hàng, hóa đơn A4/80mm, barcode và báo cáo. Source hiện còn có trả toàn bộ đơn; đây là mã có trước lượt rà soát, không tự thêm hoặc xóa.
+- ProcurementDraftBook mới là domain thử nghiệm, chỉ được import từ test; chưa nối UI/kho/công nợ nhà cung cấp. Không coi là tính năng đã phát hành.
+- Không suy test/build thành công thành nghiệm thu iPhone, máy in hoặc nghiệp vụ thực tế.
+
+## Lượt rà soát 22/11
+
+Phạm vi: entry point, tài khoản/phân quyền, giao dịch/revision, Outbox/cache/nháp, luồng tiền/đơn vị, PDF, scripts/build và bản đồ source/test. Giả định vài nhân viên đồng thời tại hai cửa hàng. Không đọc từng dòng mọi màn hình, SDK, binary hoặc các bản sao lịch sử.
+
+| Việc | Kết quả |
 | --- | --- |
-| Khởi động | `lib/main.dart`: Firebase, chọn demo/live/emulator, cửa sổ desktop |
-| Đăng nhập / phiên | `lib/controllers/session_controller.dart`, `lib/ui/authentication.dart`, `lib/ui/accounts.dart` |
-| Trạng thái nghiệp vụ | `lib/controllers/shop_controller.dart`: giỏ, lưu giao dịch, nhận snapshot, chuyển trang |
-| Lưu dữ liệu | `lib/data/demo_repository.dart`: interfaces + demo SharedPreferences; `lib/data/firestore_repository.dart`: đọc/ghi live |
-| Domain | `lib/domain/shop.dart`: sản phẩm/lô, tiền, xuất nhập, giữ đơn, thu nợ, chỉnh sổ/lương; `invoice_filter.dart` |
-| UI dùng chung | `lib/ui/app.dart` và các file `part`: theme, dialog, bố cục; `shell.dart`: điều hướng |
-| Sản phẩm / bán hàng | `catalog.dart`, `sales.dart` |
-| Công nợ / lương | `debt.dart`, `finance_settings.dart`, các dialog trong `operations.dart` / `history.dart` |
-| Kho / giao / báo cáo / nhật ký | `operations.dart`, `audit_text.dart` |
-| Hóa đơn / PDF | `invoices.dart`, `print_service.dart`, `history.dart` |
-| Quyền máy chủ | `firestore.rules`, `firebase.emulator.json`, `tools/security-tests/` |
-| Kiểm thử | `test/` theo tính năng; `integration_test/firebase_sync_test.dart` |
+| Xóa lùi/xóa tiến tại dấu cách phân nhóm tiền | Tái hiện bằng test thất bại; sửa formatter dùng chung, giữ con trỏ/IME và xóa vùng chọn |
+| Đơn vị quá giới hạn Firestore 40 ký tự | Chặn giá trị thực sự được serialize tại saveProduct, trước khi thay shop/audit; kiểm tra cả alias có nhiều khoảng trắng |
+| Script kiểm tra Web báo auto-sync tắt nhưng build bật | Thêm DisableAutoSync vào builder; verify-offline truyền cờ đúng; không đổi mặc định auto-sync của app |
+| RunBrowserQa trỏ script .qa không có trong Git | Dừng trước build, báo rõ và hướng sang integration test hiện có |
+| Rác bộ vá/source sao chép | Xóa 206 file overlay/script cũ đã có lịch sử Git và 8 bản sao/README vá/metadata thừa; không xóa tính năng đang được gọi |
+| Sắp xếp | Gom thư mục bản sao còn giữ vào backup/legacy-patches; giữ APK tại release/packages; không chia lại UI/domain hoặc tạo framework |
+| Cấu hình | VS Code dùng workspaceFolder; analyzer bỏ qua backup; gitignore chặn bản vá/bản sao/bộ cài mới. File release đã được theo dõi trước vẫn thuộc Git cho đến khi xử lý riêng |
+| Tài liệu | README viết lại theo dự án thật; AGENTS sửa thông tin SQLite, hai cửa hàng và đường dẫn SDK/JDK đã lỗi thời |
+| Cache | Dùng flutter clean, sau đó pub get --offline; giữ nguyên lockfile, không nâng dependency. Dung lượng build trước dọn khoảng 11.0 GiB, .dart_tool khoảng 642 MiB |
 
-UI hiện chia bằng `part of 'app.dart'`; domain còn dùng `Json` cho nhiều chứng từ. Đây là hiện trạng cần tôn trọng, không tự đổi toàn bộ sang kiến trúc/model khác.
+Bản sao dữ liệu, .qa, assets/design, generated app_database.g.dart và bộ cài đã giữ. Không commit/push, deploy, seed/reset/migrate, truy cập dữ liệu production hay đổi mật khẩu trong lượt này.
 
-## 3. Tính năng và mức hoàn thiện
+## Kiểm tra của lượt này
 
-“Có mã + test” nghĩa là có bằng chứng triển khai và kiểm thử tương ứng, không đồng nghĩa nghiệm thu trên thiết bị thật.
+- Baseline: analyze đạt, 255/255 Flutter test đạt.
+- Test tái hiện trước sửa: 3 ca thất bại đúng lỗi; sau sửa formatter/đơn vị: 9/9 ca liên quan đạt. Kiểm tra alias đơn vị được bổ sung cùng test giới hạn.
+- Regression toàn suite ở lượt sửa đầu: 262/262 đạt. Sau khi bổ sung kiểm tra đơn vị theo đúng chuỗi serialize, chạy lại 9/9 test liên quan và analyze đều đạt. Kết quả ở các log bên dưới.
+- Rules Emulator: **17/18 đạt**, duy nhất ca nhân viên sửa lương thất bại. Không đổi test để che lỗi và không tự đổi chính sách quyền.
+- PowerShell scripts parse đạt; builder được kiểm tra bằng stub cho cờ bật/tắt và tổ hợp cờ sai, không chạy build/deploy thật.
+- Chưa chạy integration Windows, build release, điện thoại/máy in, đo tải/quota hoặc restore thực tế trong lượt này. Không đổi giao thức Auth/sync/schema.
+- Bằng chứng cục bộ: .qa/review-20261122-{analyze-final,tests-final,targeted-final,rules,clean,pub-get}.log; không đưa .qa lên Hosting/Git.
 
-| Nhóm | Trạng thái | Bằng chứng / phần còn thiếu |
+## Vấn đề và nâng cấp cần duyệt
+
+| ID / ưu tiên | Bằng chứng và tình huống cụ thể | Hướng xử lý / nghiệm thu |
 | --- | --- | --- |
-| Đăng nhập Auth, hồ sơ quyền, khóa phiên, đổi mật khẩu | Có mã + test | SessionController, accounts, shop_test, integration test. Reset mật khẩu người khác mới có công cụ Admin SDK, chưa có luồng UI hoàn chỉnh |
-| Sản phẩm, giá, ảnh, Lưu ý, quy đổi tùy chọn | Có mã + test | catalog, shop.saveProduct, product_notes_test, sales_product_actions_test. Ảnh nhỏ đang nằm trong Firestore; chưa có kho ảnh offline |
-| Bán hàng, giỏ, khách mới tại đơn, đơn vị m²/m³ | Có mã + test | sales, shop.checkout, cart_customer_test/cart_refresh_test. Chưa có giỏ bền vững qua khởi động lại |
-| Giữ đơn/cọc, xuất/hủy giữ, chống chốt trùng | Có mã + test | ShopData, requestId/revision và Rules; shop_test, integration test. Chưa có idempotency/outbox bền vững offline |
-| Kho, nhập lô, kiểm kê có ảnh, tồn thấp/tồn lâu | Có mã + test nghiệp vụ một phần | domain + InventoryPage; tuổi lô/ngưỡng đã có. Sửa/xóa lô, đối soát lô âm, kiểm kê nhiều thiết bị còn cần hoàn thiện/nghiệm thu |
-| Khách, công nợ, thu/sửa lần thu, chỉnh tổng sổ | Có mã + test | customer_book_test, finance_settings_test, debt_view_test. Chứng từ cũ giữ nguyên; chưa có test đồng bộ offline |
-| Lương | Có tạo/sửa tổng kỳ và số đã ứng | setSalary/createPayroll. Chưa có sổ từng lần chi/đảo chi lương riêng |
-| Giao hàng | Có tạo/sửa, ảnh, phí chuyến, hoàn tất | DeliveriesPage/editDelivery/finishDelivery. Tiêu đề DH-* và tài xế đã chỉnh. Chưa có tính giá theo km |
-| Hóa đơn và bộ lọc | Có mã + test | invoices, invoice_filter, invoices_test. Đọc từ đơn đã bán, có chi tiết và PDF; chưa nghiệm thu in thật |
-| Barcode | Có sinh Code128/PDF, nhập mã/quét và xác nhận giỏ | sales/print_service/widget_test. Camera và máy in KV804 chưa nghiệm thu thiết bị thật |
-| Báo cáo | Một phần | ReportsPage: top m² và khách nợ; chưa đủ ngày/tuần/tháng, giá vốn/lãi lỗ, tổng kết đêm |
-| Nhật ký dễ đọc | Có mã + test | audit_text + audit_text_test; định dạng lịch sử tại UI, bản gốc bất biến, log mới lưu tên người thao tác |
-| Xuất sao lưu | Có CSV/JSON | exportData. Chưa có restore tổng quát, kiểm tra toàn vẹn/diễn tập phục hồi |
-| Đồng bộ | Có giao dịch online so revision + audit | FirestoreRepository. Tải toàn cửa hàng; chưa tối ưu đọc tăng dần và chưa offline-first |
-| Messenger / Zalo | Chưa tích hợp tự động | Sự kiện nội bộ ghi chưa gửi; PDF có thể chia sẻ thủ công. Không được báo đã gửi khi chưa có xác nhận |
-| Phát hành Windows/Android/iOS | Chưa nghiệm thu đầy đủ | Có build cũ Windows/Android/Web; iOS cần Mac. Chưa có bằng chứng release mới nhất trên thiết bị thật |
+| R1 / P1 | AGENTS ghi Chủ và Nhân viên được sửa lương; domain setSalary, UI history/finance_settings/debt và Rules payroll hiện chỉ cho Chủ. Rules test nhân viên bị từ chối | Chốt một chính sách trước; sửa đồng bộ UI/domain/Rules/test, kiểm thử cả hai cửa hàng và vai trò bị chặn; deploy phải duyệt riêng |
+| F02 / P1 | FirestoreRepository._read tải đủ 8 collection + meta trước/sau; watch/load/transact lặp lại khi revision đổi. Lịch sử/ảnh càng nhiều, càng nhiều reads mỗi thiết bị | Đo baseline hai máy, rồi đề xuất đồng bộ tăng dần/phân trang có checkpoint; giữ revision/idempotency, chưa tự đổi repository |
+| F04 / P1 | PrintService.theme gọi PdfGoogleFonts qua mạng. Thiết bị chưa có font có thể không in PDF lần đầu khi offline | Duyệt đóng gói font có giấy phép; test PDF tiếng Việt với mạng tắt và máy KV804 |
+| F07 / P1 | Rules kiểm tra vai trò/envelope và một số trường; không chứng minh toàn bộ phép tính lô/thu tiền như domain | Chốt mức tin cậy nhân viên; bổ sung test ghi trực tiếp giả số dư/lô trước thiết kế gia cố. Không coi client validation là bảo mật server tuyệt đối |
+| F08 / P1 | Có công cụ backup/verify/restore-staging ở tools/vlxd_backup_safe, nhưng lượt này chưa diễn tập khôi phục và Auth không thuộc JSON nghiệp vụ | Duyệt diễn tập trên staging trống, so khớp tồn/nợ/chứng từ, ảnh và tài khoản; không restore vào kho thật |
+| R2 / P1 | .firebaserc mặc định open-loyalty-app, trong khi firebase_options trỏ vlxd-bay-hai; chạy Firebase thiếu --project có thể nhắm nhầm project | Mọi lệnh phải chỉ rõ project; cần duyệt việc sửa alias mặc định. Lượt này giữ nguyên IDs/config thật |
+| R3 / P2 | pubspec version 1.0.0+1; nhiều bộ cài đặt tên 1.0.x ở release, Android cấu hình ký debug | Duyệt version/build number và khóa ký release, thử nâng cấp giữ DB trên thiết bị; không tự tạo khóa hay ký phát hành |
+| R4 / P2 | ProcurementDraftBook chỉ có test; material_ui là dependency trực tiếp chưa thấy import trong lib/test/integration, nhưng có thể còn dependency bắc cầu của SDK | Chốt giữ/xóa phần thử nghiệm và dependency sau dependency audit/build. Không xóa cả package chỉ vì không thấy một import |
 
-## 4. Bằng chứng kiểm tra và môi trường thật
+F06: source hiện yêu cầu Chủ cho bán âm; không tự thay quyền này hoặc thêm luồng duyệt đơn lớn. Các nhận định F01/F03 “chưa có SQLite/nháp bền vững” từ 04/11 đã lỗi thời, được thay bằng hiện trạng trên.
 
-- Lượt sửa nhật ký gần nhất trong chat: `flutter test --no-pub` **65/65 đạt**, `flutter analyze --no-pub` không có vấn đề. Lượt này không chạy lại; không coi là kiểm thử offline-first hoặc iOS.
-- Rules emulator gần nhất: **15/15 đạt**, project giả `demo-vlxd-tests`, trước thay đổi hiển thị nhật ký/tên người thao tác. Xem `tools/security-tests/rules.test.mjs`, `docs/cong-no-luong.md`.
-- Integration Windows từng thành công theo `docs/ket-qua-kiem-tra-firebase.md`. Assertion payroll đã cập nhật theo quyền mới; chưa có kết quả chạy lại toàn kịch bản cho bản hiện tại. Không dùng kết quả cũ chứng minh quyền payroll mới đã qua integration.
-- Build Web gần nhất thành công trước hai lượt sửa khách tại đơn và nhật ký. Build Android/Windows là kết quả cũ, chưa chứng minh mã hiện tại build được trên các nền tảng đó. Chưa build/ký iOS.
-- Rules đã phát hành lên `vlxd-bay-hai` ngày 04/11/2026 sau xác nhận riêng; SHA256: `95717C540EED3F2D2A0806007ED31A49DF8A5BD70E91314846F9D4A1E442573A`. Nguồn: `docs/cong-no-luong.md` và kết quả CLI trong chat. Không truy cập lại project thật ở lượt lập kế hoạch này.
-- Project thật đã có tài khoản và 4 sản phẩm MAU-* được nhập theo yêu cầu trước đó; người dùng đã thao tác tạo dữ liệu. **Không coi kho là trống, không tự seed/reset/migrate.**
-- `git status` cho thấy nhiều thư mục mã còn untracked; không tự clean/reset/checkout hoặc diễn giải mọi file untracked là do tác vụ hiện tại tạo.
+## Tools, skills và MCP hiện có
 
-## 5. Phát hiện có bằng chứng
+- Kiểm kê metadata của **300 tool** được cung cấp trong phiên: built-in 13; Codex desktop 50; GitHub 89; Ad Superpowers 51; ChatGPT Space 39; Sites 25; Pets 11; Plugin Management 6; Safety 5; Artifact Session 3; Document Control 3; Node REPL 3; Search 1; Hotline 1.
+- Config cục bộ .codex/config.toml có MCP node_repl; gọi JavaScript tối thiểu đã chạy được. Danh sách tool khả dụng không chứng minh quyền đăng nhập hay sức khỏe mọi dịch vụ; không gọi API quảng cáo/email/ghi GitHub chỉ để thử.
+- Skills có nhóm Dart/Flutter (test, analyze, layout, integration, dependency...), Ponytail (audit/review/lean), computer-use, tài liệu/PDF/bảng tính/slide, visualize, plugin-management, Sites/Pages, cloud-environment, OpenAI docs và Ad Superpowers/Pets. Chỉ đọc/áp dụng skill liên quan, không cài thêm.
+- Dùng Ponytail cho rà soát/sửa gọn, Plugin Management để kiểm kê; Dart unit-test và static-analysis để kiểm tra. Dart/Flutter MCP, LSP runtime tools, Graphify và Superpowers chuyên lập trình không xuất hiện trong tool inventory, nên dùng CLI có sẵn.
+- Flutter 3.50.0 / Dart 3.14.0 ở D:/development/flutter; JDK 21 ở D:/jdk21. PATH terminal chưa sẵn Flutter/Firebase nên truyền PATH tạm theo README; không sửa cài đặt máy/global permissions.
 
-Phân biệt thiếu tính năng/giới hạn thiết kế với lỗi đã tái hiện; lượt này không chạy app để tái hiện lỗi mới.
+## Tiếp tục lần sau
 
-| ID | Loại / ưu tiên | Bằng chứng rõ ràng | Ảnh hưởng / hướng xử lý |
-| --- | --- | --- | --- |
-| F01 | Khoảng cách kiến trúc / P0 | pubspec chưa có SQLite; main tắt native persistence; repository dùng Source.server; controller chặn khi lỗi đồng bộ | Dữ liệu thật chưa hoạt động offline; thiết kế local DB/outbox trước khi lập trình |
-| F02 | Chi phí/hiệu năng / P0 | FirestoreRepository._read đọc toàn bộ 8 collection cùng meta trước/sau; watch gọi load khi meta đổi; transact đọc lại | Reads/băng thông và bộ nhớ tăng theo lịch sử, ảnh, số máy; cần baseline đo và đồng bộ tăng dần có checkpoint |
-| F03 | Rủi ro mất nháp / P1 | cart/requestId trong bộ nhớ ShopController; clearSession xóa, chưa có lưu nháp production | Giỏ và mã thử lại không bền qua restart. Chưa thấy lỗi mất chứng từ đã commit; cần draft/outbox durable cho offline |
-| F04 | Phụ thuộc mạng / P1 | PrintService.theme tải PdfGoogleFonts Noto; ảnh base64 nằm cùng tài liệu đồng bộ | PDF lần đầu chưa bảo đảm offline; cần font đóng gói và thiết kế cache ảnh |
-| F05 | Sai lệch tài liệu xác nhận / P0 | README còn nói Rules chưa deploy, chưa có dữ liệu thật và NV không sửa lương; docs/cong-no-luong ghi trạng thái mới | Dùng trạng thái mới ở đây và quyết định người dùng; lên tác vụ sửa các tài liệu cũ, không sửa âm thầm quyền theo README |
-| F06 | Quy tắc cần xác nhận / P0 | shop.checkout hiện cho staff bán vượt tồn nếu có lý do; yêu cầu ban đầu chỉ Chủ duyệt âm, yêu cầu sau cho NV cùng quyền nghiệp vụ | Chưa kết luận là bug phân quyền. Chốt riêng quyền bán âm và duyệt đơn lớn trước khi sửa |
-| F07 | Giới hạn tin cậy / P0 | Rules bảo vệ hồ sơ/envelope/audit/immutable fields nhưng không chứng minh toàn bộ phép tính lô/thu tiền; cờ đổi mật khẩu do client cập nhật | Cần xác định mô hình đe dọa và mức tin cậy NV; không tuyên bố client validation là bảo vệ máy chủ tuyệt đối |
-| F08 | Thiếu phục hồi / P1 | exportData có xuất; importLocalDemo chỉ nhập vào kho trống, không phải restore tổng quát | Chưa có quy trình phục hồi đầy đủ, đặc biệt Auth không nằm trong JSON |
-| F09 | Thiếu đối soát / P1 | Bán âm sinh lô AM-* cost=0 và allocation cost=null | Chưa có giá vốn đáng tin cho phần âm; phải hiển thị chưa xác định, không báo lãi giả |
-| F10 | Kiểm chứng nền tảng / P0 | Tài liệu Firebase hiện có cảnh báo Windows native; chưa có Mac/iPhone/hardware QA | Xác minh hỗ trợ chính thức của phiên bản đang khóa trước khi cam kết Windows production; kế hoạch không tự chuyển REST/SDK/database |
-
-## 6. Các quyết định phải chốt trước thay đổi kiến trúc
-
-1. Offline cho phép xem, giữ giỏ hay cả ghi sổ bán/thu nợ/kiểm kê? Đăng nhập lần đầu và cấp/thu hồi quyền offline được xử lý thế nào?
-2. Hai máy cùng offline không thể biết tồn mới nhất của nhau. Chọn hạn mức tồn theo thiết bị, đơn tạm chờ duyệt/đồng bộ hoặc chỉ chốt khi online; không hứa vừa chốt offline tự do vừa chống bán vượt tồn toàn cửa hàng tuyệt đối.
-3. Định danh đơn liên thiết bị, thời điểm nghiệp vụ, replay, xung đột giá/lô/thu tiền, trạng thái pending/rejected/confirmed và nghiệp vụ đảo bút toán.
-4. SQLite adapter/schema version/migration, ranh giới repository và bảo vệ dữ liệu cục bộ; native là ưu tiên. Web đang dùng được: giữ tương thích hay tách lộ trình, không tự bỏ Web.
-5. Trần tài nguyên/ngân sách đọc ghi, kích thước dữ liệu/máy dự kiến; Spark là ưu tiên, không phải cam kết miễn phí vô hạn. Không tự bật billing/backend trả phí.
-6. Chốt quyền bán âm/duyệt đơn lớn; quyền sửa công nợ/lương đã chốt thì giữ nguyên.
-
-## 7. Nhóm công việc còn lại theo thứ tự
-
-Mỗi nhóm là một đợt có ranh giới, có thể chia bước nhỏ; không triển khai đồng loạt. P0 trước nghiệp vụ mới, P1 trước vận hành, P2 là hoàn thiện có thể hoãn.
-
-| Nhóm | Phụ thuộc / ưu tiên | Nội dung liên quan | Tiêu chí nghiệm thu |
-| --- | --- | --- | --- |
-| G0 — Chốt nền tảng và baseline | P0, bước tiếp theo | Quyết định mục 6, xác minh hỗ trợ Firebase Windows từ nguồn chính thức, làm rõ tài liệu mâu thuẫn; ADR + đo đọc/ghi mẫu | Có phương án được duyệt, ma trận online/offline/quyền/xung đột và giới hạn miễn phí; baseline đo lại được; chưa migrate dữ liệu |
-| G1 — SQLite và dữ liệu bền vững | P0, sau G0 | Adapter local dưới interface phù hợp hiện có, migration/version, transaction local, nháp giỏ, cache ảnh/font | Dữ liệu còn sau kill/restart; ghi tiền+tồn+outbox nguyên tử nếu cho phép ghi offline; test migration lỗi/rollback trên bản sao; không chuyển demo thành live; không sửa kho thật |
-| G2 — Đồng bộ, idempotency, hiệu năng | P0, sau G1 | Outbox/inbox, trạng thái pending, checkpoint/tombstone, retry/backoff, IDs offline, auth/revocation, đối soát với server | Test hai thiết bị, mất mạng giữa ack, gửi lại, crash, máy bị khóa; không trừ tồn/thu hai lần; xung đột theo chính sách G0; số reads tăng theo dữ liệu thay đổi sau lần tải đầu, có đo ảnh và pagination; không bỏ revision hiện tại khi chưa có thay thế được chứng minh |
-| G3 — Hoàn thiện bán/kho/công nợ/lương | P1, sau G0; dùng G2 khi offline | Xác nhận ngoại lệ bán âm, chỉnh lô an toàn, sổ từng lần chi lương, nghiệp vụ điều chỉnh đã có; không thêm trả/đổi hàng hoặc xuất kho không bán | Chứng từ truy được lô/lần thu/lần chi; không sửa lịch sử để làm khớp; nhập/bán/giữ/hủy/kiểm kê đối chiếu số dư; số tiền âm/sai đơn vị bị chặn; đồng thời không ghi đè |
-| G4 — Sao lưu và phục hồi | P1, sau schema G1; trước migrate thật | Versioned export/import, ảnh, manifest/checksum, dry-run, quyền và quy trình restore, backup trước migration | Diễn tập export → DB trống → so khớp tồn/nợ/đơn/ảnh; từ chối file hỏng/sai schema; retry không nhân đôi; không ghi đè dữ liệu thật; nêu rõ Auth/credential không thuộc backup nghiệp vụ |
-| G5 — PDF, barcode, giao hàng | P1 | Font offline, logo/thông tin cửa hàng, phí theo km/chuyến, KV804/camera và chia sẻ | PDF tiếng Việt offline đúng số liệu; quét phải xác nhận trước giỏ; in test trên KV804, Android/iPhone theo kết nối được hỗ trợ; hoàn tất chuyến lặp không phát sinh thu/chi mới |
-| G6 — Báo cáo và đối soát | P1, sau G3 | Ngày/tuần/tháng, doanh thu khác thực thu, giá vốn FIFO/lô âm, chi vận chuyển/lương, tổng kết | Bộ dữ liệu có đáp án đối chiếu; cọc/thu nợ không tính doanh thu hai lần; hiển thị giá vốn chưa rõ; biên ngày múi giờ cửa hàng đúng; truy được chứng từ |
-| G7 — Thông báo nội bộ | P2, sau xác minh API và quyền | Xác minh kênh Messenger qua Fanpage bằng tài liệu chính thức; queue chống trùng, tổng kết đêm khi có hạ tầng phù hợp | Chỉ nhóm nội bộ đã được phép; không đọc hội thoại/nhắn khách; không báo gửi thành công trước ack; lỗi gửi không mất đơn; phương án không thêm phí phải chứng minh, không hứa tác vụ đêm luôn chạy trên thiết bị đang tắt |
-| G8 — Nghiệm thu và phát hành | P1, sau nhóm bắt buộc | Android/Windows build hiện tại, iOS ký trên Mac, kiểm tra offline/phục hồi/hiệu năng/quyền/hardware; checklist bản phát hành | Mỗi nền tảng có phiên bản, kết quả và artifact; backup/rollback dùng được; test theo vai trò và mất mạng; không suy build thành công = sản phẩm đã nghiệm thu |
-
-## 8. Theo dõi tác vụ
-
-### Đối chiếu công nợ khách Loan
-
-- Firestore xác nhận 8 đơn đã thu đủ 6.086.800 đ. Chênh lệch 50.000 đ xuất phát từ điều chỉnh Đã thu âm. Đã lưu bút toán được duyệt bằng giao dịch kiểm tra phiên bản, ghi nhật ký và đọc lại số dư 0 đ.
-- App chặn chỉnh Đã thu thấp hơn tổng phiếu thu hợp lệ. Muốn sửa phiếu nhập sai, dùng luồng điều chỉnh lần thu trên đơn. Chốt kiểm tra này ở domain khi ghi giao dịch, với thông báo trong biểu mẫu chỉnh sổ. Các thiết bị cần chạy bản app mới để áp dụng.
-- 10/11/2026: build Web release và triển khai Hosting `vlxd-bay-hai` theo xác nhận. Tệp `main.dart.js` phục vụ qua Hosting trả HTTP 200 và khớp SHA-256 với bản build cục bộ.
-
-### 10/11/2026 — Bán hàng và công nợ
-
-- Mã hiện tại đã có Drift/SQLite cho nháp, ảnh chụp dữ liệu và hàng đợi đơn offline. Nhận định chưa có SQLite ở bản rà soát 04/11 là mốc lịch sử. Đơn, tồn và công nợ chính thức tiếp tục dựa vào giao dịch Firestore.
-- Đã bỏ báo giá PDF và tính gạch theo phòng. Giữ in hóa đơn đã bán. Giảm giá theo số tiền VND, tối đa bằng tiền hàng. Khi không nhập, giảm giá bằng 0. Tổng đơn = tiền hàng − giảm giá + phí giao hàng. Hóa đơn lưu `subtotal` sau giảm và lưu riêng `discount` khi có giảm, giữ công thức Rules `total = subtotal + ship`. Nháp và payload offline cũ mặc định không giảm giá.
-- Sổ công nợ phân trang độc lập, 10 dòng/trang, cho thanh toán, đơn hàng và điều chỉnh. Khi số dư theo đơn khác số dư sổ, màn hình hiện phần chênh lệch và mở đối chiếu. Phiếu thu mặc định theo số còn thu được, giới hạn bởi cả số dư đơn và số dư sổ.
-- Đã kiểm tra kịch bản chỉ còn 50.000 đ phí giao hàng và thu nốt về 0, cùng trường hợp sổ đã có khoản thu điều chỉnh. Ảnh người dùng không đủ để kết luận nguyên nhân trên khách thật. Không sửa dữ liệu giao dịch để ép số dư về 0.
-- Kiểm thử đã qua: Flutter 181 ca ở lượt toàn bộ, sau đó 15 ca chọn lọc cho phân trang, nháp và Outbox. Firebase Rules Emulator 16/16, gồm đơn giảm giá và chặn sửa giảm giá sau chốt.
-- Build Windows Debug và integration hai client trên Emulator đạt. Kịch bản lưu giảm giá 25.000 đ từ SQLite, đồng bộ đúng một đơn, ghi nốt phí giao hàng 50.000 đ rồi đọc lại số dư 0 từ client khác. Analyzer còn 8 lint mức info ngoài phạm vi tại `auto_sync_coordinator.dart`, `accounting.dart` và `app.dart`. Không có lỗi biên dịch.
-
-| Tác vụ | Trạng thái | Kết quả |
-| --- | --- | --- |
-| Rà soát chọn lọc và tạo hai tài liệu gốc | Hoàn tất lượt kế hoạch | PROJECT_STATUS.md + AGENTS.md; không đổi source/config/data |
-| Cập nhật số lượng không cần mất focus | Hoàn tất | `confirmProduct` trước đây chỉ đọc qty khi xác nhận, thiếu phần hiển thị tiền theo thay đổi controller. Test trước sửa thất bại ở 390/1440; thêm ValueListenableBuilder cho số lượng quy đổi/thành tiền/tổng tiền hàng dự kiến. Không ghi giỏ/kho/Firestore theo phím; giữ controller, selection, composing, Lưu ý. 5 test mới đạt; toàn bộ `flutter test --no-pub` đạt 70/70; `flutter analyze --no-pub` không có vấn đề. File: `lib/ui/sales.dart`, `test/sales_live_quantity_test.dart`, tài liệu này |
-| G0 | Chưa bắt đầu triển khai | Đề nghị là tác vụ tiếp theo; chưa có ADR được duyệt |
-| G1–G8 | Chưa triển khai theo kế hoạch mới | Không diễn giải các nhóm là cam kết đã làm |
-
-Sau mỗi tác vụ: cập nhật đúng hàng/phát hiện/bằng chứng liên quan; ghi file đổi, kiểm tra đã chạy, giới hạn và bước tiếp. Chỉ đọc thêm module khi có dependency thực sự.
-
-Ghi chú điều tra UI: đã kiểm tra field helper, controller, sự kiện và GetBuilder tại sales/shell. Không tìm thấy nhánh onFocusChange/onEditingComplete trì hoãn tính tiền; onSubmitted chỉ dùng kết thúc nhập mã vạch. Chọn sản phẩm sau xác nhận, nút +/- và phí giao hàng có kiểm thử cập nhật ngay; không khẳng định đã tái hiện một lỗi blur chung của mọi màn hình. Thay đổi lần này bổ sung phản hồi trực tiếp cho số lượng đang soạn, không tự thêm sản phẩm khi người dùng chưa xác nhận. Chưa kiểm tra thủ công thiết bị thật/build release cho lượt sửa này.
-
-
-Ngày 13/11/2026. Đơn vị sản phẩm tự nhập lưu riêng trường unit, giữ đọc dữ liệu cũ theo size. Bỏ m³ khỏi bộ lọc kích thước và tách ĐVT khỏi SL trong phiếu PDF. Analyze đạt ở lượt sửa; 18/18 test product_unit_test và shop_test đạt. Build Web manifest 29F941519388A95ABF653174. Đã deploy Rules và Hosting vlxd-bay-hai, kênh iphone-test mới https://vlxd-bay-hai--iphone-test-8ea30xhk.web.app. SHA-256 bundle và manifest công khai khớp bản build ở cả hai link. Firebase CLI báo lỗi sau khi release hoàn tất, đã xác minh HTTP độc lập. Chưa nghiệm thu máy in thật; chưa build APK/Windows cho thay đổi này. Build dùng cấu hình tự gửi outbox tắt của công cụ build hiện có.
-
-Ngày 14/11/2026 — Hai cửa hàng và phát hành hoàn tất.
-- Chọn Hai Sóc/Bảy Hải trước đăng nhập. Bảy Hải giữ stores/bay-hai và hồ sơ users; Hai Sóc dùng stores/hai-soc và members riêng. Firebase SDK/Auth persistence, SQLite/outbox/nháp/cache và ghi chú sổ sách tách theo cửa hàng. admin và Đặng Chí Bảo được xác minh bằng Auth và đọc lại là owner hoạt động ở cả hai cửa hàng. Hai Sóc không sao chép dữ liệu Bảy Hải; tài khoản khác cần được cấp quyền riêng.
-- Flutter suite 190/190, Rules Emulator 18/18 và integration Windows Emulator đạt. Integration kiểm tra chuyển Hai Sóc → Bảy Hải → Hai Sóc, hàng đợi đúng cửa hàng, tự đồng bộ đúng một đơn, tồn Bảy Hải không đổi, chặn tài khoản chỉ có quyền Bảy Hải vào Hai Sóc. flutter analyze: không có vấn đề.
-- Rules đã deploy project vlxd-bay-hai. Reset thật đã hoàn tất theo duyệt: giữ 4 sản phẩm [Mẫu], ảnh/lô/tồn hiện tại, reserved=0, giữ 4 tài khoản; orders/customers/deliveries/payroll/audit/stockMoves/notifications/requests đều 0 sau đọc lại. Công cụ lưu bản sao riêng tại .qa trước ghi, kiểm tra updateTime, commit nguyên tử; meta generation=reset-20261113 chặn ghi từ app cũ. Local DB mới tách generation và cửa hàng, không đọc lại hàng đợi thử cũ.
-- Build Android release, Windows release và Web thành công; pubspec.lock không đổi. AGP 9.1.0 → 9.1.1 theo yêu cầu tối thiểu Flutter. Tái tạo plugin registrant bằng build release thông thường, không giữ integration_test của build kiểm thử. APK xác minh apksigner đạt; ZIP kiểm tra đủ exe/DLL/assets.
-- Artifact: build/releases/VLXD-HaiSoc-BayHai-Android.apk (99.323.542 bytes), build/releases/VLXD-HaiSoc-BayHai-Windows.zip (28.344.236 bytes). APK hiện ký bằng debug key của dự án, dành cài trực tiếp, chưa phải bản ký phát hành Play Store. Windows giải nén toàn bộ ZIP rồi chạy vlxd_app.exe.
-- Hosting chính https://vlxd-bay-hai.web.app và https://vlxd-bay-hai--iphone-test-8ea30xhk.web.app đã phát hành. Kênh iphone-test hết hạn 21/11/2026. Manifest 913ACFDEFF7774569E8FA808 và SHA-256 main.dart.js của cả hai URL được xác minh HTTP 200 khớp bản build.
-- Auto-sync mặc định bật trong bản mới Web/iPhone PWA, Android, Windows. Chỉ chạy khi ứng dụng đang mở, phiên hợp lệ và xác minh được máy chủ; kiểm tra định kỳ 20 giây. Có xử lý hàng đợi cho bán hàng, nhập kho, thu công nợ; lỗi cần đối chiếu/bán âm không tự vượt kiểm tra. Người dùng cần cập nhật APK/Windows và tải lại Web; không khẳng định đã cài lên mọi thiết bị. iPhone dùng Web/PWA, chưa build IPA hay thử trên điện thoại/máy in thật.
-- Bằng chứng: .qa/stores-tests-final.log, .qa/stores-rules.log, .qa/store-integration.log, .qa/stores-analyze.log, .qa/android-final.log, .qa/windows-final.log, .qa/web-final.log, .qa/hosting-stores-final.log, .qa/iphone-stores-final.log. .qa không được đưa lên Git/Hosting.
+1. Đọc tài liệu này và git diff hiện tại; có nhiều xóa bộ vá lịch sử, không nhầm là xóa runtime.
+2. Chốt R1 quyền lương và R2 alias Firebase trước; không tự deploy bản sửa này.
+3. Với nhiệm vụ nhỏ chỉ đọc module/test trong bảng README. Source: main → controllers → domain/data → UI; không đọc backup/build/Pub cache để tìm code đang chạy.
+4. Giữ tiền nguyên VND, lượng 1/10.000, snapshot hóa đơn và revision/requestId. Không xóa Outbox hoặc reset DB để giải quyết test.
+5. Các lần phát hành/reset trước (10–14/11) là lịch sử; không suy ra production hiện còn dữ liệu như lúc đó. Source/tài liệu 15–22/11 có bản vá mới hơn; lượt này không xác minh lại dữ liệu thật.

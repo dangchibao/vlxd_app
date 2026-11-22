@@ -248,7 +248,7 @@ service cloud.firestore {
           );
       }
       match /payroll/{id} {
-        allow create, update: if envelope(id) && owner()
+        allow create, update: if envelope(id)
           && request.resource.data.value.salary is int && request.resource.data.value.salary >= 0
           && request.resource.data.value.advance is int && request.resource.data.value.advance >= 0
           && request.resource.data.value.advance <= request.resource.data.value.salary;

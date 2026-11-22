@@ -1,7 +1,0 @@
-STATIC CHECK ONLY (Flutter SDK is not installed in this environment)
-Source used: the 6-file UI V3 overlay, then 10 successful shorter-text edits.
-Anchor matches: 1.
-Edited Dart file: lib/ui/catalog.dart (inserts only one SizedBox before minimum field).
-Expected mobile spacing: 12px when MediaQuery width < 600; desktop: 16px.
-Other app files changed: none.
-Do not confuse source verification with real flutter analyze/test; installer runs those on user's PC.

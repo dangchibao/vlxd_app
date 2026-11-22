@@ -1,6 +1,0 @@
-    final heldOrders = c.data.orders
-        .where((o) => o['status'] == 'Giữ hàng').length;
-    final activeTrips = c.data.deliveries
-        .where((d) => d['status'] == 'Đang giao').length;
-    final debtCustomers = c.data.customers
-        .where((customer) => c.data.debt(customer['id'] as String) > 0).length;
