@@ -239,146 +239,156 @@ class _InventoryPageState extends State<InventoryPage> {
           itemBuilder: (p) => dense
               ? _compactInventoryProduct(context, c, p)
               : Padding(
-            padding: const EdgeInsets.only(bottom: 9),
-            child: panel(
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 8,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      titleText('${p.name} ${p.size}', size: dense ? 16 : 18),
-                      hint('SKU: ${p.code}'),
-                      if (!p.active) badge('Ngừng kinh doanh'),
-                      if (productAvailability(p) != 'Còn hàng')
-                        badge(productAvailability(p), warning: true),
-                      if (p.isOld(DateTime.now()))
-                        badge('Có lô tồn trên 60 ngày', warning: true),
-                    ],
-                  ),
-                  SizedBox(height: dense ? 5 : 10),
-                  Text(
-                    'Tồn ${area(p.stock)} ${p.unit} • Giữ ${area(p.reserved)} ${p.unit} • Khả dụng ${area(p.available)} ${p.unit}',
-                  ),
-                  if (!dense)
-                    hint(
-                      p.minimum > 0
-                          ? 'Cảnh báo khi tồn kho còn: ${area(p.minimum)} ${p.unit}'
-                          : 'Chưa đặt ngưỡng cảnh báo',
-                    ),
-                  const SizedBox(height: 4),
-                  if (_visibleInventoryLots(p).isNotEmpty)
-                    ExpansionTile(
-                      key: PageStorageKey('lots-${p.id}'),
-                      tilePadding: EdgeInsets.zero,
-                      childrenPadding: EdgeInsets.zero,
-                      dense: true,
-                      initiallyExpanded: false,
-                      leading: const Icon(
-                        Icons.layers_outlined,
-                        size: 19,
-                        color: blue,
-                      ),
-                      title: Text(
-                        'Xem ${_visibleInventoryLots(p).length} lô hàng',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
+                  padding: const EdgeInsets.only(bottom: 9),
+                  child: panel(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        for (final l in _visibleInventoryLots(p))
-                          ListTile(
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            titleText(
+                              '${p.name} ${p.size}',
+                              size: dense ? 16 : 18,
+                            ),
+                            hint('SKU: ${p.code}'),
+                            if (!p.active) badge('Ngừng kinh doanh'),
+                            if (productAvailability(p) != 'Còn hàng')
+                              badge(productAvailability(p), warning: true),
+                            if (p.isOld(DateTime.now()))
+                              badge('Có lô tồn trên 60 ngày', warning: true),
+                          ],
+                        ),
+                        SizedBox(height: dense ? 5 : 10),
+                        Text(
+                          'Tồn ${area(p.stock)} ${p.unit} • Giữ ${area(p.reserved)} ${p.unit} • Khả dụng ${area(p.available)} ${p.unit}',
+                        ),
+                        if (!dense)
+                          hint(
+                            p.minimum > 0
+                                ? 'Cảnh báo khi tồn kho còn: ${area(p.minimum)} ${p.unit}'
+                                : 'Chưa đặt ngưỡng cảnh báo',
+                          ),
+                        const SizedBox(height: 4),
+                        if (_visibleInventoryLots(p).isNotEmpty)
+                          ExpansionTile(
+                            key: PageStorageKey('lots-${p.id}'),
+                            tilePadding: EdgeInsets.zero,
+                            childrenPadding: EdgeInsets.zero,
                             dense: true,
-                            contentPadding: EdgeInsets.zero,
+                            initiallyExpanded: false,
+                            leading: const Icon(
+                              Icons.layers_outlined,
+                              size: 19,
+                              color: blue,
+                            ),
                             title: Text(
-                              '${_inventoryLotLabel(p, l)} • ${day(l['date'])}',
-                            ),
-                            subtitle: Text(
-                              '${area(l['area'])} ${p.unit} • Vốn ${money(l['cost'])}/${p.unit}',
-                            ),
-                            trailing: Tooltip(
-                              message:
-                                  (l['area'] == 0 &&
-                                      (l['reserved'] as int? ?? 0) == 0)
-                                  ? 'Ẩn lô hết hàng (giữ lịch sử)'
-                                  : 'Lô đang có tồn hoặc giữ: không thể ẩn',
-                              child: IconButton(
-                                icon: const Icon(
-                                  Icons.visibility_off_outlined,
-                                  color: Colors.orange,
-                                ),
-                                onPressed: c.busy
-                                    ? null
-                                    : () =>
-                                          hideEmptyInventoryLot(context, p, l),
+                              'Xem ${_visibleInventoryLots(p).length} lô hàng',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
+                            children: [
+                              for (final l in _visibleInventoryLots(p))
+                                ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Text(
+                                    '${_inventoryLotLabel(p, l)} • ${day(l['date'])}',
+                                  ),
+                                  subtitle: Text(
+                                    '${area(l['area'])} ${p.unit} • Vốn ${money(l['cost'])}/${p.unit}',
+                                  ),
+                                  trailing: Tooltip(
+                                    message:
+                                        (l['area'] == 0 &&
+                                            (l['reserved'] as int? ?? 0) == 0)
+                                        ? 'Ẩn lô hết hàng (giữ lịch sử)'
+                                        : 'Lô đang có tồn hoặc giữ: không thể ẩn',
+                                    child: IconButton(
+                                      icon: const Icon(
+                                        Icons.visibility_off_outlined,
+                                        color: Colors.orange,
+                                      ),
+                                      onPressed: c.busy
+                                          ? null
+                                          : () => hideEmptyInventoryLot(
+                                              context,
+                                              p,
+                                              l,
+                                            ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
+                        const SizedBox(height: 5),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            if (compact || dense)
+                              IconButton.outlined(
+                                tooltip: 'Nhập hàng',
+                                onPressed: () => receiveStock(context, p),
+                                icon: const Icon(Icons.add_box_outlined),
+                              )
+                            else
+                              OutlinedButton.icon(
+                                onPressed: () => receiveStock(context, p),
+                                icon: const Icon(Icons.add_box_outlined),
+                                label: const Text('Nhập hàng'),
+                              ),
+                            if (compact || dense)
+                              IconButton.outlined(
+                                tooltip: 'Kiểm kê / ảnh kho',
+                                onPressed: () => inspectStock(context, p),
+                                icon: const Icon(Icons.fact_check_outlined),
+                              )
+                            else
+                              OutlinedButton.icon(
+                                onPressed: () => inspectStock(context, p),
+                                icon: const Icon(Icons.fact_check_outlined),
+                                label: const Text('Kiểm kê / ảnh kho'),
+                              ),
+                            if (c.actor?.canAdmin == true &&
+                                p.lots.any(
+                                  (l) =>
+                                      l['hiddenFromInventory'] == true &&
+                                      (l['area'] as int? ?? 0) == 0 &&
+                                      (l['reserved'] as int? ?? 0) == 0,
+                                ))
+                              TextButton.icon(
+                                icon: const Icon(Icons.visibility_outlined),
+                                label: const Text('Xem lô đã ẩn'),
+                                onPressed: () =>
+                                    showHiddenInventoryLots(context, p),
+                              ),
+                            if (c.actor?.canAdmin == true &&
+                                p.lots.any(
+                                  (l) =>
+                                      l['lotNumber'] is! int ||
+                                      (l['lotNumber'] as int) <= 0,
+                                ))
+                              TextButton.icon(
+                                icon: const Icon(Icons.push_pin_outlined),
+                                label: const Text('Đánh số lô cũ'),
+                                onPressed: () => attempt(() async {
+                                  await c.change(
+                                    (d, a) =>
+                                        d.assignMissingLotNumbers(p.id, a),
+                                  );
+                                }),
+                              ),
+                          ],
+                        ),
                       ],
                     ),
-                  const SizedBox(height: 5),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      if (compact || dense)
-                        IconButton.outlined(
-                          tooltip: 'Nhập hàng',
-                          onPressed: () => receiveStock(context, p),
-                          icon: const Icon(Icons.add_box_outlined),
-                        )
-                      else
-                        OutlinedButton.icon(
-                          onPressed: () => receiveStock(context, p),
-                          icon: const Icon(Icons.add_box_outlined),
-                          label: const Text('Nhập hàng'),
-                        ),
-                      if (compact || dense)
-                        IconButton.outlined(
-                          tooltip: 'Kiểm kê / ảnh kho',
-                          onPressed: () => inspectStock(context, p),
-                          icon: const Icon(Icons.fact_check_outlined),
-                        )
-                      else
-                        OutlinedButton.icon(
-                          onPressed: () => inspectStock(context, p),
-                          icon: const Icon(Icons.fact_check_outlined),
-                          label: const Text('Kiểm kê / ảnh kho'),
-                        ),
-                      if (c.actor?.canAdmin == true &&
-                          p.lots.any(
-                            (l) =>
-                                l['hiddenFromInventory'] == true &&
-                                (l['area'] as int? ?? 0) == 0 &&
-                                (l['reserved'] as int? ?? 0) == 0,
-                          ))
-                        TextButton.icon(
-                          icon: const Icon(Icons.visibility_outlined),
-                          label: const Text('Xem lô đã ẩn'),
-                          onPressed: () => showHiddenInventoryLots(context, p),
-                        ),
-                      if (c.actor?.canAdmin == true &&
-                          p.lots.any(
-                            (l) =>
-                                l['lotNumber'] is! int ||
-                                (l['lotNumber'] as int) <= 0,
-                          ))
-                        TextButton.icon(
-                          icon: const Icon(Icons.push_pin_outlined),
-                          label: const Text('Đánh số lô cũ'),
-                          onPressed: () => attempt(() async {
-                            await c.change(
-                              (d, a) => d.assignMissingLotNumbers(p.id, a),
-                            );
-                          }),
-                        ),
-                    ],
+                    padding: EdgeInsets.all(dense ? 10 : 16),
                   ),
-                ],
-              ),
-              padding: EdgeInsets.all(dense ? 10 : 16),
-            ),
-          ),
+                ),
         ),
         if (c.data.stockMoves.isNotEmpty && compact)
           panel(
@@ -519,9 +529,21 @@ class _InventoryPageState extends State<InventoryPage> {
                     spacing: 10,
                     runSpacing: 7,
                     children: [
-                      _inventoryFact('Tồn thực tế', '${area(p.stock)} ${p.unit}', factWidth),
-                      _inventoryFact('Đang giữ', '${area(p.reserved)} ${p.unit}', factWidth),
-                      _inventoryFact('Khả dụng', '${area(p.available)} ${p.unit}', factWidth),
+                      _inventoryFact(
+                        'Tồn thực tế',
+                        '${area(p.stock)} ${p.unit}',
+                        factWidth,
+                      ),
+                      _inventoryFact(
+                        'Đang giữ',
+                        '${area(p.reserved)} ${p.unit}',
+                        factWidth,
+                      ),
+                      _inventoryFact(
+                        'Khả dụng',
+                        '${area(p.available)} ${p.unit}',
+                        factWidth,
+                      ),
                     ],
                   );
                 },
@@ -548,7 +570,9 @@ class _InventoryPageState extends State<InventoryPage> {
                   alignment: Alignment.centerLeft,
                   child: Padding(
                     padding: const EdgeInsets.only(top: 4),
-                    child: hint('Cảnh báo khi tồn còn: ${area(p.minimum)} ${p.unit}'),
+                    child: hint(
+                      'Cảnh báo khi tồn còn: ${area(p.minimum)} ${p.unit}',
+                    ),
                   ),
                 ),
               if (lots.isNotEmpty)
@@ -571,7 +595,8 @@ class _InventoryPageState extends State<InventoryPage> {
                           'Vốn ${money(lot['cost'])}/${p.unit}',
                         ),
                         trailing: Tooltip(
-                          message: (lot['area'] == 0 &&
+                          message:
+                              (lot['area'] == 0 &&
                                   (lot['reserved'] as int? ?? 0) == 0)
                               ? 'Ẩn lô hết hàng (giữ lịch sử)'
                               : 'Lô đang có tồn hoặc giữ: không thể ẩn',
@@ -641,43 +666,38 @@ class _InventoryPageState extends State<InventoryPage> {
     );
   }
 
-  Widget _inventoryFact(String label, String value, double width) =>
-      SizedBox(
-        width: width,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-            ),
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF17345E),
-              ),
-            ),
-          ],
+  Widget _inventoryFact(String label, String value, double width) => SizedBox(
+    width: width,
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
         ),
-      );
-
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF17345E),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 Future<void> receiveStock(BuildContext context, Product p) async {
   final shop = Get.find<ShopController>();
   final operationId = newId();
   var inputUnit = p.packUnit;
-  final qty = TextEditingController(text: '10');
-  final initialBaseCost = (p.price * .7).round();
-  final cost = TextEditingController(
-    text:
-        '${p.hasPackConversion ? (initialBaseCost * p.ratio / productUnitScale).round() : initialBaseCost}',
-  );
+  // Không tự sinh lượng nhập hay giá mua từ giá bán.
+  final qty = TextEditingController();
+  final cost = TextEditingController();
   var date = DateTime.now();
   await safeDialog<void>(
     context: context,
@@ -717,10 +737,13 @@ Future<void> receiveStock(BuildContext context, Product p) async {
                           'vi',
                         ).format(oldQty * oldFactor / newFactor);
                       }
-                      final oldCost = whole(cost.text);
-                      if (oldCost >= 0) {
-                        cost.text =
-                            '${(oldCost * newFactor / oldFactor).round()}';
+                      // Chỉ quy đổi giá mua nếu người dùng đã thực sự nhập giá.
+                      if (cost.text.trim().isNotEmpty) {
+                        final oldCost = whole(cost.text);
+                        if (oldCost > 0) {
+                          cost.text =
+                              '${(oldCost * newFactor / oldFactor).round()}';
+                        }
                       }
                       set(() => inputUnit = next);
                     },
@@ -728,17 +751,25 @@ Future<void> receiveStock(BuildContext context, Product p) async {
                   const SizedBox(height: 12),
                 ],
                 field(qty, 'Số lượng ($inputUnit)', number: true),
-                field(cost, 'Giá nhập đ/$inputUnit', moneyInput: true),
+                field(cost, 'Giá mua thực tế đ/$inputUnit', moneyInput: true),
                 const SizedBox(height: 8),
                 ListenableBuilder(
                   listenable: Listenable.merge([qty, cost]),
                   builder: (context, _) {
                     final n = decimal(qty.text);
-                    final price = whole(cost.text);
-                    if (!n.isFinite || n <= 0 || price < 0) {
+                    if (!n.isFinite || n <= 0) {
                       return const Text(
-                        'Kiểm tra số lượng và giá nhập trước khi lưu.',
+                        'Nhập số lượng thực tế để xem dự tính.',
                       );
+                    }
+                    if (cost.text.trim().isEmpty) {
+                      return const Text(
+                        'Chưa có giá nhập. Hãy điền giá mua thực tế từ nhà cung cấp.',
+                      );
+                    }
+                    final price = whole(cost.text);
+                    if (price <= 0) {
+                      return const Text('Giá nhập phải lớn hơn 0 đ.');
                     }
                     final byPack = p.isSecondaryUnit(inputUnit);
                     final factor = inputUnitFactor(
@@ -760,8 +791,8 @@ Future<void> receiveStock(BuildContext context, Product p) async {
                     );
                     return Text(
                       'Quy đổi: ${area(amount)} ${p.unit} • '
-                      'Giá vốn: ${money(perBase)}/${p.unit} • '
-                      'Tổng vốn ghi sổ: ${money(lineMoney(amount, perBase))}',
+                      'Giá vốn dự kiến: ${money(perBase)}/${p.unit} • '
+                      'Tổng tiền nhập dự kiến: ${money(lineMoney(amount, perBase))}',
                     );
                   },
                 ),
@@ -802,9 +833,14 @@ Future<void> receiveStock(BuildContext context, Product p) async {
                 packRatio: p.ratio,
                 byPack: byPack,
               );
+              if (cost.text.trim().isEmpty) {
+                throw ArgumentError(
+                  'Chưa nhập giá mua thực tế; không được suy ra từ giá bán.',
+                );
+              }
               final enteredCost = whole(cost.text);
-              if (enteredCost < 0) {
-                throw ArgumentError('Giá nhập phải là số nguyên không âm.');
+              if (enteredCost <= 0) {
+                throw ArgumentError('Giá nhập thực tế phải lớn hơn 0 đ.');
               }
               final unitCost = baseUnitCostFromInput(
                 enteredUnitCost: enteredCost,
@@ -1613,7 +1649,11 @@ List<({String name, String code, int total})> bestSellingByValue(
       final key = id.isEmpty ? 'legacy:${legacyRow++}' : 'product:$id';
       names.putIfAbsent(key, () => '${line['name'] ?? 'Sản phẩm'}');
       codes.putIfAbsent(key, () => '${line['code'] ?? ''}');
-      totals.update(key, (previous) => previous + amount, ifAbsent: () => amount);
+      totals.update(
+        key,
+        (previous) => previous + amount,
+        ifAbsent: () => amount,
+      );
     }
   }
   return [
@@ -1666,20 +1706,24 @@ class ReportsPage extends StatelessWidget {
                           'Khi có đơn đã bán, các sản phẩm sẽ hiển thị tại đây.',
                           Icons.bar_chart,
                         ),
-                      ...topByValue.take(10).map(
-                        (p) => ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(p.name),
-                          subtitle: p.code.isEmpty
-                              ? const Text('Dòng cũ chưa có mã sản phẩm')
-                              : Text(p.code),
-                          trailing: Text(
-                            money(p.total),
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                      ...topByValue
+                          .take(10)
+                          .map(
+                            (p) => ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(p.name),
+                              subtitle: p.code.isEmpty
+                                  ? const Text('Dòng cũ chưa có mã sản phẩm')
+                                  : Text(p.code),
+                              trailing: Text(
+                                money(p.total),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
                       const Divider(height: 16),
                       ExpansionTile(
                         key: const ValueKey('report-tiles-by-area'),
@@ -1698,17 +1742,21 @@ class ReportsPage extends StatelessWidget {
                                 'Chưa có đơn bán hàng theo m². Doanh số của hàng bao/cái vẫn tính ở danh sách trên.',
                               ),
                             ),
-                          ...top.take(10).map(
-                            (p) => ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(p.name),
-                              subtitle: Text(p.code.isEmpty
-                                  ? 'Dòng cũ chưa có mã sản phẩm'
-                                  : p.code),
-                              trailing: Text('${area(p.quantity)} m²'),
-                            ),
-                          ),
+                          ...top
+                              .take(10)
+                              .map(
+                                (p) => ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Text(p.name),
+                                  subtitle: Text(
+                                    p.code.isEmpty
+                                        ? 'Dòng cũ chưa có mã sản phẩm'
+                                        : p.code,
+                                  ),
+                                  trailing: Text('${area(p.quantity)} m²'),
+                                ),
+                              ),
                         ],
                       ),
                     ],
